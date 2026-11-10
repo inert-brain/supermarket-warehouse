@@ -1,0 +1,60 @@
+# Public access exposes slot-to-product assignments to anyone who can call this connector.
+query GetSlotBindings
+@auth(
+    level: PUBLIC
+    insecureReason: "Slot bindings are intentionally available without authentication for the Expo app."
+) {
+    slots(where: { slotId: { ge: 1, le: 8 } }, limit: 8) {
+        slotId
+        productID
+    }
+}
+
+# Read all bindings for the exact product, including out-of-menu slots, so
+# inconsistent inventory is not mistaken for an unassigned product.
+query GetProductContext($productID: String!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Product context is intentionally available without authentication for the Expo prototype."
+) {
+    stock(key: { productID: $productID }) {
+        productID
+        description
+        expiresOn
+        currentStatus
+        statusUpdatedAt
+    }
+    slots(where: { productID: { eq: $productID } }) {
+        slotId
+        productID
+        assignedAt
+    }
+}
+
+query GetSlotMenu
+@auth(
+    level: PUBLIC
+    insecureReason: "Slot and stock status are intentionally available without authentication for the Expo prototype."
+) {
+    slots(where: { slotId: { ge: 1, le: 8 } }, limit: 8) {
+        slotId
+        productID
+        assignedAt
+        stock {
+            productID
+            currentStatus
+        }
+    }
+}
+
+query GetStockByProductID($productID: String!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Stock lookup is intentionally available without authentication for the Expo app."
+) {
+    stock(key: { productID: $productID }) {
+        productID
+        description
+        expiresOn
+    }
+}

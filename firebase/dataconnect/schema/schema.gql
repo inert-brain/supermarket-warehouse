@@ -1,35 +1,45 @@
 enum StockStatus {
-  EMPTY
-  OCCUPIED
-  PENDING_DISPATCH
+    EMPTY
+    OCCUPIED
+    PENDING_DISPATCH
 }
 
 enum ActivityType {
-  RECEIVED
-  REMOVED_FROM_RACK
-  RETURNED_TO_RACK
-  DISPATCH_CONFIRMED
+    ON_RACK
+    OFF_RACK
+    DISPATCHED
+    "An expired scan was rejected; does not by itself confirm physical removal."
+    REMOVED
 }
 
 type Stock @table(name: "stocks", key: ["productID"]) {
-  productID: String! @col(name: "product_id")
-  currentStatus: StockStatus! @default(value: EMPTY)
-  statusUpdatedAt: Timestamp! @default(expr: "request.time")
-  description: String
-  expiresOn: Date
+    productID: String! @col(name: "product_id")
+    currentStatus: StockStatus! @default(value: EMPTY)
+    statusUpdatedAt: Timestamp! @default(expr: "request.time")
+    description: String
+    expiresOn: Date
 }
 
 type Activity @table(name: "activities", key: ["activityId"]) {
-  activityId: Int! @col(dataType: "serial")
-  productID: String! @col(name: "product_id")
-  stock: Stock! @ref(fields: ["productID"], constraintName: "activities_product_id_fkey")
-  occurredAt: Timestamp! @default(expr: "request.time")
-  activityType: ActivityType!
+    activityId: Int! @col(dataType: "serial")
+    productID: String! @col(name: "product_id")
+    stock: Stock!
+        @ref(
+            fields: ["productID"]
+            constraintName: "activities_product_id_fkey"
+        )
+    occurredAt: Timestamp! @default(expr: "request.time")
+    activityType: ActivityType!
 }
 
 type Slot @table(name: "slots", key: ["slotId"]) {
-  slotId: Int!
-  productID: String @col(name: "assigned_product_id")
-  stock: Stock @unique(indexName: "slots_assignedProductId_uidx") @ref(fields: ["productID"], constraintName: "slots_assigned_product_id_fkey")
-  assignedAt: Timestamp
+    slotId: Int!
+    productID: String @col(name: "assigned_product_id")
+    stock: Stock
+        @unique(indexName: "slots_assignedProductId_uidx")
+        @ref(
+            fields: ["productID"]
+            constraintName: "slots_assigned_product_id_fkey"
+        )
+    assignedAt: Timestamp
 }
