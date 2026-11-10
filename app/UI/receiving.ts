@@ -1,6 +1,6 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
 import { executeQuery, getDataConnect, queryRef, QueryFetchPolicy } from 'firebase/data-connect';
-import { interpretStock, storeDate, waitForQuery, type ValidationResult } from './receiving-core';
+import { interpretStock, localDate, waitForQuery, type ValidationResult } from './receiving-core';
 
 export type { ValidationResult } from './receiving-core';
 
@@ -22,8 +22,7 @@ export function dataConnect() {
 
 export async function validateReceiving(barcode: string, signal: AbortSignal): Promise<ValidationResult> {
   if (!barcode.trim()) throw new Error('The barcode is empty. Scan it again.');
-  const timeZone = process.env.EXPO_PUBLIC_STORE_TIMEZONE ?? '';
-  storeDate(new Date(), timeZone);
+
   if (signal.aborted) throw new Error('Lookup cancelled.');
   const dc = dataConnect();
   const ref = queryRef<unknown, { productID: string }>(dc, 'GetStockByProductID', { productID: barcode });
@@ -33,5 +32,5 @@ export async function validateReceiving(barcode: string, signal: AbortSignal): P
   } catch {
     throw new Error('Could not look up the product. Check the connection and Data Connect configuration, then retry.');
   }
-  return interpretStock(data, barcode, storeDate(new Date(), timeZone));
+  return interpretStock(data, barcode, localDate(new Date()));
 }

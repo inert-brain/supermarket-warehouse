@@ -47,6 +47,35 @@ query GetSlotMenu
     }
 }
 
+# Advisory only: each field may observe a different database state.
+query GetLocationSnapshot($productID: String!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Location snapshot is intentionally available without authentication for the Expo prototype."
+) {
+    stock(key: { productID: $productID }) {
+        productID
+        description
+        expiresOn
+        currentStatus
+        statusUpdatedAt
+    }
+    rackSlots: slots(where: { slotId: { ge: 1, le: 8 } }, limit: 8) {
+        slotId
+        productID
+        assignedAt
+        stock {
+            productID
+            currentStatus
+        }
+    }
+    productBindings: slots(where: { productID: { eq: $productID } }) {
+        slotId
+        productID
+        assignedAt
+    }
+}
+
 query GetStockByProductID($productID: String!)
 @auth(
     level: PUBLIC

@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, Button, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { validateReceiving, type ValidationResult } from './receiving';
 import { LocationWorkflow } from './location/LocationWorkflow';
-import { locationAdapter } from './location/adapter';
-import { SlotPicker } from './SlotPicker';
+
 
 type LookupState =
   | { status: 'loading' }
@@ -18,6 +17,7 @@ export default function App() {
   const scanned = useRef(false);
   const request = useRef<AbortController | null>(null);
   const [lookup, setLookup] = useState<LookupState | null>(null);
+  const [locationBusy, setLocationBusy] = useState(false);
 
   useEffect(() => () => {
     request.current?.abort();
@@ -70,6 +70,7 @@ export default function App() {
   }
 
   function scanAgain() {
+    if (locationBusy) return;
     request.current?.abort();
     request.current = null;
     scanned.current = false;
@@ -148,12 +149,8 @@ export default function App() {
                 <Text>Expires on: {lookup.result.product.expiresOn ?? 'Unknown'}</Text>
               </>
             )}
-            {locationAdapter ? (
-              <LocationWorkflow key={barcode} productID={barcode} adapter={locationAdapter} />
-            ) : lookup?.status === 'success' && lookup.result.decision === 'READY_FOR_PUTAWAY' ? (
-              <SlotPicker key={barcode} productID={barcode} />
-            ) : null}
-            <View style={styles.button}><Button title="Scan again" onPress={scanAgain} /></View>
+            <LocationWorkflow key={barcode} productID={barcode} onBusyChange={setLocationBusy} />
+            <View style={styles.button}><Button title="Scan again" disabled={locationBusy} onPress={scanAgain} /></View>
           </>
         )}
       </ScrollView>

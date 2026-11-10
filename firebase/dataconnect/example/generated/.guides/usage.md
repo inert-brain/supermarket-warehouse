@@ -14,11 +14,38 @@ If a user is not using a supported framework, they can use the generated SDK dir
 Here's an example of how to use it with the first 5 operations:
 
 ```js
-import { getStockByProductId } from '@dataconnect/example';
+import { placeProduct, takeOffRack, returnProduct, moveProduct, dispatchProduct, recordExpiredScan, getSlotBindings, getProductContext, getSlotMenu, getLocationSnapshot } from '@dataconnect/example';
 
 
-// Operation GetStockByProductID:  For variables, look at type GetStockByProductIdVars in ../index.d.ts
-const { data } = await GetStockByProductId(dataConnect, getStockByProductIdVars);
+// Operation PlaceProduct:  For variables, look at type PlaceProductVars in ../index.d.ts
+const { data } = await PlaceProduct(dataConnect, placeProductVars);
+
+// Operation TakeOffRack:  For variables, look at type TakeOffRackVars in ../index.d.ts
+const { data } = await TakeOffRack(dataConnect, takeOffRackVars);
+
+// Operation ReturnProduct:  For variables, look at type ReturnProductVars in ../index.d.ts
+const { data } = await ReturnProduct(dataConnect, returnProductVars);
+
+// Operation MoveProduct:  For variables, look at type MoveProductVars in ../index.d.ts
+const { data } = await MoveProduct(dataConnect, moveProductVars);
+
+// Operation DispatchProduct:  For variables, look at type DispatchProductVars in ../index.d.ts
+const { data } = await DispatchProduct(dataConnect, dispatchProductVars);
+
+// Operation RecordExpiredScan:  For variables, look at type RecordExpiredScanVars in ../index.d.ts
+const { data } = await RecordExpiredScan(dataConnect, recordExpiredScanVars);
+
+// Operation GetSlotBindings:
+const { data } = await GetSlotBindings(dataConnect);
+
+// Operation GetProductContext:  For variables, look at type GetProductContextVars in ../index.d.ts
+const { data } = await GetProductContext(dataConnect, getProductContextVars);
+
+// Operation GetSlotMenu:
+const { data } = await GetSlotMenu(dataConnect);
+
+// Operation GetLocationSnapshot:  For variables, look at type GetLocationSnapshotVars in ../index.d.ts
+const { data } = await GetLocationSnapshot(dataConnect, getLocationSnapshotVars);
 
 
 ```

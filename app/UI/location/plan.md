@@ -1,5 +1,7 @@
 # Plan: Synchronize Stock, Slot Assignments, and Activities
 
+> Historical plan, superseded by [CONTRACT.md](CONTRACT.md) for the single-phone MVP. Do not implement the version/ledger/reconciliation or trusted-store-date requirements below. The current app uses flat slot IDs, phone-local expiry, and direct state/binding-guarded Firebase transactions; uncertain outcomes refresh state without automatic retry. Firebase changes are owned separately.
+
 ## 1. Scope and source of truth
 
 Implement functional app-confirmed placement, temporary take-off, return, move, and external dispatch using the current Firebase Data Connect schema. One product ID is one product/inventory unit. Keep direct Expo → Data Connect access and the eight-slot menu. Rack + app double-check remains deferred; label this phase as staff-confirmed, not sensor-verified.

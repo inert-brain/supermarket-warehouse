@@ -1,17 +1,56 @@
-# Location adapter integration contract
+# Direct Data Connect integration contract — single-phone MVP
 
-The default `locationAdapter` is **null**. The screen cannot submit anything until an implementation satisfying this contract is explicitly wired in `adapter.ts`. Existing `GetStockByProductID`/`GetSlotBindings` reads are not sufficient for this workflow. Do not wire arbitrary CRUD or client-side multi-write sequences. App confirmations are staff-confirmed, not sensor-verified.
+The app uses the Firebase app and Data Connect `example` connector, `smart-warehouse-service`, `asia-southeast1`, configured in `receiving.ts`. No local command server is required. This document describes the simplified app contract; the Firebase owner must align and deploy the connector separately. Local UI tests do not verify deployed operations.
 
-## TypeScript boundary
+## Reads
 
-`LocationAdapter` and the exact types are in `adapter.ts` and `core.ts`. `read(productID, signal)` returns `null` only for an absent exact string key; otherwise return a `Snapshot`: `{ product: { productID, status, version, expiry }, slots }`. `slots` is all eight `{ slotId, productID, assignedAt, version, status }` records, including joined stock status for each bound product and null status for an unbound slot. Expiry is `valid`, `expired`, or `unknown`, computed with the configured store timezone; valid includes the expiry date. It is advisory only. Reads must be server-fresh and sufficiently consistent for display; the trusted command must independently validate everything. Versions must be nonnegative safe integers. Missing, inconsistent or partial results must throw, not be silently normalized. The UI also checks the complete snapshot and refuses malformed or inconsistent data.
+Server-only `GetLocationSnapshot` takes `{ productID: string }` and returns:
 
-Command shape is `{ operationID, action, productID, productVersion, source, target }`; source/target are null or `{ slotId, version }`. Operation names are `PlaceProduct`, `TakeOffRack`, `ReturnProduct`, `MoveProduct`, `DispatchProduct`, `RecordExpiredScan`. Placement has target only; move has source and target; take-off, return and dispatch have source only; expired scan has source when bound. All carry the observed product version. Confirmation is explicit in the UI for every normal command, especially dispatch; commands must not be dispatched from a scan alone.
+```text
+{
+  stock: null | { productID, currentStatus, expiresOn, description },
+  rackSlots: [{ slotId, productID, assignedAt,
+                stock: null | { productID, currentStatus } }],
+  productBindings: [{ slotId, productID, assignedAt }]
+}
+```
 
-`prepare(payload)` generates a cryptographically secure UUID, persists the **complete immutable command** to durable device storage before returning it, and must not send it. It must atomically refuse if any earlier command is pending. `pending()` returns that command across process death and across products; it must throw on storage failure, never report an uncertain journal as empty. `submit(command)` sends exactly that command to the corresponding trusted operation. `resolve(command)` checks the authoritative operation ledger without creating a new operation; it returns null if outcome is unknown/not yet terminal. `submit` may also be called again with exactly the same command/ID. Both return `{ status: 'committed' | 'conflict', message: string }` only for an authoritative terminal outcome. Network errors, timeouts, unknown responses, and missing operation records are not conflicts. `clear(operationID)` removes only a matching terminal command after its outcome is known; it must not erase any other operation. Storage or communication failures throw and preserve the journal. If `prepare` fails after persisting, `pending()` must still reveal the command.
+`rackSlots` must contain all eight slots 1–8, including empty slots. `productBindings` must include all bindings of the exact requested product, including out-of-range bindings. The mapper rejects missing/duplicate slots, mismatched joins/bindings, invalid assignment timestamps/nullability, duplicate product bindings, and incompatible stock states. An absent stock is null only if it has no bindings. Versions are not required or consumed.
 
-The connector/server must implement atomic, conditional transactions and a durable operation ledger. Identical ID and payload replay returns the original result; same ID with different payload is rejected. Validate observed product and all affected slot versions and affected row counts, increment product and affected slot versions for transitions including retained bindings, and commit state, both assignment fields, event, and operation result together. Return authoritative conflicts, not guessed results. A stale dispatch captured before return and another take-off must fail. Enforce unique bindings, slot IDs 1–8, state/binding consistency, expiry using trusted store time, and all action preconditions. `RecordExpiredScan` inserts REMOVED once per scan without changing stock, timestamps, slots or versions. See `plan.md` for the complete transition matrix. Authorize the operations before exposing them; atomicity is not authorization.
+Reads are advisory, not assumed transactionally consistent. An inconsistent read gets a bounded retry, then repair/refresh guidance. Expiry remains based on the **phone's local calendar date**: valid through the expiry day, earlier dates expired, missing/invalid dates unknown. This is a single-phone prototype trade-off, not trusted authorization. No phone date or expiry verdict is sent as a mutation variable.
 
-## Integration blockers
+## Commands and wire variables
 
-The repository's current query output lacks joined status, timestamps and concurrency tokens; no trusted transaction/ledger, durable journal, or secure UUID provider is wired here. Implement and review those independently before enabling the adapter. No connector operation names or response shapes are assumed beyond the application contract above. No schema, security rules, migration, deployment, or live integration test is performed by this UI change. Verify rollback, competing clients, replay after restart and stale confirmation against the real connector before release.
+Core commands are exactly `{ action, productID, sourceSlotID, targetSlotID }`, with null for unused IDs. Product IDs are preserved verbatim, including leading zeros/spaces. Slot IDs are integers 1–8. The adapter sends only applicable flat GraphQL variables:
+
+| Mutation | Variables |
+|---|---|
+| `PlaceProduct` | `productID`, `targetSlotID` |
+| `TakeOffRack` | `productID`, `sourceSlotID` |
+| `ReturnProduct` | `productID`, `sourceSlotID` |
+| `MoveProduct` | `productID`, `sourceSlotID`, `targetSlotID` |
+| `DispatchProduct` | `productID`, `sourceSlotID` |
+| `RecordExpiredScan` | `productID`, nullable `sourceSlotID` |
+
+There are no operation IDs, version tokens, client-selected statuses, activity types, or timestamps. No LocationOperation read or write is needed by the app.
+
+The Firebase owner supplies one **state/binding-guarded `@transaction`** per mutation. Product existence, permitted current state, exact source binding, target availability, slot range, uniqueness, and affected-row checks belong in the hosted transaction. Stock/slot changes and the fixed activity insert must commit together or all roll back. The client never chains independent stock/slot/activity writes.
+
+| Mutation | Stock | Slot | Activity |
+|---|---|---|---|
+| Place | EMPTY → OCCUPIED | Bind target and assignedAt | ON_RACK |
+| Take off | OCCUPIED → PENDING_DISPATCH | Retain binding/time | OFF_RACK |
+| Return | PENDING_DISPATCH → OCCUPIED | Retain binding/time | ON_RACK |
+| Move | OCCUPIED/PENDING_DISPATCH → OCCUPIED | Clear both source fields, bind distinct target | ON_RACK |
+| Dispatch | PENDING_DISPATCH → EMPTY | Clear productID and assignedAt | DISPATCHED |
+| Expired scan | Unchanged | Unchanged | REMOVED |
+
+## Completion and uncertainty
+
+`LocationTransport` has `writesEnabled`, `readSnapshot(productID)`, and `executeCommand(command): Promise<void>`. A successful SDK mutation completion is accepted as committed; no response envelope or ledger lookup is required. The adapter exposes only `writesEnabled`, bounded/cancellable `read`, and bounded `submit`. It rejects simultaneous submissions instead of queueing them.
+
+The UI holds a synchronous tap lock through confirmation, mutation, and refresh. Slot/action/refresh buttons and Scan again are disabled while busy. Cancel/dismiss releases the lock. Success refreshes inventory; failure or timeout also refreshes, then asks staff to check current inventory and the physical product. An uncertain outcome is not shown as failure or success. Manual/foreground refresh retains that warning. No automatic mutation retry, pending-forever screen, UUID, AsyncStorage journal, or reconciliation API remains.
+
+Timeout stops waiting; it cannot cancel the hosted transaction. Staff must check state before a new deliberate action. Without a ledger or versions, there is **no exactly-once, restart recovery, or stale lifecycle/replay guarantee**. In particular, a delayed expired-scan response cannot be verified from unchanged stock state. Expired rejection is attempted once per mounted deliberate scan and never automatically retried; a new deliberate scan may record another event.
+
+Keep existing enums, warehouse counts, reserved off-rack assignments, scanner behavior, and staff-confirmed/not-sensor-verified labeling. PUBLIC mutations permit unauthenticated callers to change inventory; obtain deployment/security approval and use isolated test data. Firebase credentials, deployment, transaction/rollback tests, and device acceptance are separate from this UI-only change.

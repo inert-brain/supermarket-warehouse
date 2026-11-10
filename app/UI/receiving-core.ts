@@ -30,23 +30,14 @@ function isCalendarDate(value: unknown): value is string {
   return day <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
 }
 
-export function storeDate(now: Date, timeZone: string): string {
-  try {
-    if (!timeZone) throw new Error('Missing timezone');
-    const parts = new Intl.DateTimeFormat('en-US-u-ca-iso8601-nu-latn', {
-      timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
-    }).formatToParts(now);
-    const get = (type: string) => parts.find(part => part.type === type)?.value;
-    const date = `${get('year')?.padStart(4, '0')}-${get('month')}-${get('day')}`;
-    if (isCalendarDate(date)) return date;
-  } catch {
-    // Fail closed if the configured timezone or device Intl support is invalid.
-  }
-  throw new Error('Set a valid EXPO_PUBLIC_STORE_TIMEZONE supported by this device.');
+export function localDate(now: Date): string {
+  const date = `${String(now.getFullYear()).padStart(4, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  if (!isCalendarDate(date)) throw new Error('Cannot determine the phone date.');
+  return date;
 }
 
 export function interpretStock(data: unknown, barcode: string, today: string): ValidationResult {
-  if (!isCalendarDate(today)) throw new Error('Cannot determine the store date.');
+  if (!isCalendarDate(today)) throw new Error('Cannot determine the phone date.');
   if (typeof data !== 'object' || data === null || !('stock' in data)) {
     throw new Error('Unexpected product response. Do not accept the product; retry or contact support.');
   }

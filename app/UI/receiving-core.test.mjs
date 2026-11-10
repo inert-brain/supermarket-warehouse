@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { interpretStock, storeDate, waitForQuery } from './receiving-core.ts';
+import { interpretStock, localDate, waitForQuery } from './receiving-core.ts';
 
 const barcode = ' 00123 ';
 const result = expiresOn => ({ stock: { productID: barcode, description: null, expiresOn } });
@@ -24,7 +24,7 @@ test('rejects missing products and malformed or mismatched responses', () => {
   for (const value of [{}, { stock: undefined }, { stock: { productID: '00123', description: null, expiresOn: null } }, { stock: { productID: barcode, expiresOn: null } }]) {
     assert.throws(() => interpretStock(value, barcode, '2026-03-09'), /unexpected/i);
   }
-  assert.throws(() => interpretStock(result(null), barcode, 'invalid'), /store date/i);
+  assert.throws(() => interpretStock(result(null), barcode, 'invalid'), /phone date/i);
 });
 
 test('cancellation stops waiting and ignores a late result', async () => {
@@ -39,10 +39,8 @@ test('cancellation stops waiting and ignores a late result', async () => {
   await assert.rejects(waitForQuery(Promise.resolve('late'), controller.signal), /cancelled/i);
 });
 
-test('uses the configured timezone and rejects invalid configuration', () => {
-  const now = new Date('2026-03-09T16:30:00Z');
-  assert.equal(storeDate(now, 'Asia/Singapore'), '2026-03-10');
-  assert.equal(storeDate(now, 'UTC'), '2026-03-09');
-  assert.throws(() => storeDate(now, ''), /TIMEZONE/);
-  assert.throws(() => storeDate(now, 'Not/AZone'), /TIMEZONE/);
+test('uses the phone local calendar date without timezone configuration', () => {
+  assert.equal(localDate(new Date(2026, 2, 9, 23, 59)), '2026-03-09');
+  assert.equal(localDate(new Date(2026, 2, 10, 0, 1)), '2026-03-10');
+  assert.throws(() => localDate(new Date(NaN)), /phone date/i);
 });

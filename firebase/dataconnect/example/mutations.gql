@@ -1,0 +1,159 @@
+# PUBLIC writes are only appropriate for an isolated, single-phone prototype.
+# Expiry is decided by the phone. There are no version tokens or retry ledger.
+# Every failed check or activity insert rolls back the entire transaction.
+mutation PlaceProduct($productID: String!, $targetSlotID: Int!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+)
+@transaction {
+    stock_updateMany(
+        where: { productID: { eq: $productID }, currentStatus: { eq: EMPTY } }
+        data: { currentStatus: OCCUPIED, statusUpdatedAt_expr: "request.time" }
+    ) @check(expr: "this == 1", message: "STALE_STOCK")
+    # The unique product-assignment index also rejects an existing binding.
+    slot_updateMany(
+        where: {
+            slotId: { eq: $targetSlotID, ge: 1, le: 8 }
+            productID: { isNull: true }
+            assignedAt: { isNull: true }
+        }
+        data: { productID: $productID, assignedAt_expr: "request.time" }
+    ) @check(expr: "this == 1", message: "STALE_TARGET")
+    activity_insert(data: { productID: $productID, activityType: ON_RACK })
+}
+
+mutation TakeOffRack($productID: String!, $sourceSlotID: Int!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+)
+@transaction {
+    stock_updateMany(
+        where: {
+            productID: { eq: $productID }
+            currentStatus: { eq: OCCUPIED }
+        }
+        data: {
+            currentStatus: PENDING_DISPATCH
+            statusUpdatedAt_expr: "request.time"
+        }
+    ) @check(expr: "this == 1", message: "STALE_STOCK")
+    # A matching no-op update checks the reservation without changing assignedAt.
+    source: slot_updateMany(
+        where: {
+            slotId: { eq: $sourceSlotID, ge: 1, le: 8 }
+            productID: { eq: $productID }
+            assignedAt: { isNull: false }
+        }
+        data: { productID: $productID }
+    ) @check(expr: "this == 1", message: "STALE_SOURCE")
+    activity_insert(data: { productID: $productID, activityType: OFF_RACK })
+}
+
+mutation ReturnProduct($productID: String!, $sourceSlotID: Int!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+)
+@transaction {
+    stock_updateMany(
+        where: {
+            productID: { eq: $productID }
+            currentStatus: { eq: PENDING_DISPATCH }
+        }
+        data: { currentStatus: OCCUPIED, statusUpdatedAt_expr: "request.time" }
+    ) @check(expr: "this == 1", message: "STALE_STOCK")
+    source: slot_updateMany(
+        where: {
+            slotId: { eq: $sourceSlotID, ge: 1, le: 8 }
+            productID: { eq: $productID }
+            assignedAt: { isNull: false }
+        }
+        data: { productID: $productID }
+    ) @check(expr: "this == 1", message: "STALE_SOURCE")
+    activity_insert(data: { productID: $productID, activityType: ON_RACK })
+}
+
+mutation MoveProduct(
+    $productID: String!
+    $sourceSlotID: Int!
+    $targetSlotID: Int!
+)
+@auth(
+    level: PUBLIC
+    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+)
+@transaction {
+    stock_updateMany(
+        where: {
+            productID: { eq: $productID }
+            currentStatus: { in: [OCCUPIED, PENDING_DISPATCH] }
+        }
+        data: { currentStatus: OCCUPIED, statusUpdatedAt_expr: "request.time" }
+    ) @check(expr: "this == 1", message: "STALE_STOCK")
+    source: slot_updateMany(
+        where: {
+            slotId: { eq: $sourceSlotID, ge: 1, le: 8 }
+            productID: { eq: $productID }
+            assignedAt: { isNull: false }
+        }
+        data: { productID: null, assignedAt: null }
+    ) @check(expr: "this == 1", message: "STALE_SOURCE")
+    target: slot_updateMany(
+        where: {
+            slotId: { eq: $targetSlotID, ge: 1, le: 8, ne: $sourceSlotID }
+            productID: { isNull: true }
+            assignedAt: { isNull: true }
+        }
+        data: { productID: $productID, assignedAt_expr: "request.time" }
+    ) @check(expr: "this == 1", message: "STALE_TARGET")
+    activity_insert(data: { productID: $productID, activityType: ON_RACK })
+}
+
+mutation DispatchProduct($productID: String!, $sourceSlotID: Int!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+)
+@transaction {
+    stock_updateMany(
+        where: {
+            productID: { eq: $productID }
+            currentStatus: { eq: PENDING_DISPATCH }
+        }
+        data: { currentStatus: EMPTY, statusUpdatedAt_expr: "request.time" }
+    ) @check(expr: "this == 1", message: "STALE_STOCK")
+    source: slot_updateMany(
+        where: {
+            slotId: { eq: $sourceSlotID, ge: 1, le: 8 }
+            productID: { eq: $productID }
+            assignedAt: { isNull: false }
+        }
+        data: { productID: null, assignedAt: null }
+    ) @check(expr: "this == 1", message: "STALE_SOURCE")
+    activity_insert(data: { productID: $productID, activityType: DISPATCHED })
+}
+
+mutation RecordExpiredScan($productID: String!, $sourceSlotID: Int)
+@auth(
+    level: PUBLIC
+    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+)
+@transaction {
+    # Validate the supplied binding without changing or locking inventory rows.
+    query
+        @check(
+            expr: "response.query.stock != null && ((vars.sourceSlotID == null && response.query.stock.currentStatus == 'EMPTY' && response.query.bindings.size() == 0) || (vars.sourceSlotID != null && vars.sourceSlotID >= 1 && vars.sourceSlotID <= 8 && response.query.stock.currentStatus in ['OCCUPIED', 'PENDING_DISPATCH'] && response.query.bindings.size() == 1 && response.query.bindings[0].slotId == vars.sourceSlotID && response.query.bindings[0].assignedAt != null))"
+            message: "STALE_OR_INCONSISTENT"
+        ) {
+        stock(key: { productID: $productID }) {
+            currentStatus
+        }
+        bindings: slots(where: { productID: { eq: $productID } }) {
+            slotId
+            assignedAt
+        }
+    }
+    activity_insert(data: { productID: $productID, activityType: REMOVED })
+}

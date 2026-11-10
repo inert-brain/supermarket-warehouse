@@ -1,6 +1,6 @@
 # Receiving validation backend
 
-A Node.js/TypeScript prototype that reads one `Stock` by `productID` using Firebase Admin Data Connect. It performs **no inventory writes**. `READY_FOR_PUTAWAY` means eligible at the time of validation, not received or authorized indefinitely. Future receiving writes must revalidate transactionally.
+A Node.js/TypeScript prototype with a read-only receiving validation endpoint and a PostgreSQL-backed location command service. `READY_FOR_PUTAWAY` is advisory; commands independently revalidate inventory and expiry in a transaction.
 
 ## Before use
 
@@ -59,6 +59,38 @@ For a known product, HTTP 200 contains, for example:
 
 For a physical Android device, the separately configured app URL must use the development computer's reachable LAN address, not phone `localhost`. Set `HOST` to a suitable reachable interface only on a controlled network. Prefer HTTPS; Android development builds may otherwise block cleartext HTTP, so use a narrowly scoped development-only exception if needed, never a global transport-security bypass. See `../UI/README.md` for the Expo scanner configuration.
 
+## Location command service
+
+Set `DATABASE_URL` to an explicitly chosen PostgreSQL connection string for the same database as Data Connect. Without it, receiving validation remains available but location routes return 503. Use a dedicated least-privilege database role with SELECT/UPDATE on `stocks` and `slots`, SELECT/INSERT on `activities` (and usage on its serial sequence), and SELECT/INSERT/UPDATE on `location_operations`. Use a local Cloud SQL Auth Proxy or another secured PostgreSQL endpoint; configure verified TLS according to your proxy/driver setup. Firebase ADC does not provide PostgreSQL database credentials. Do not put this URL in the app or logs. No managed connector is included. The database must be migrated separately before enabling commands; this backend does not create or modify schema. Required additions are `stocks.version` and `slots.version` integer NOT NULL DEFAULT 0, plus `location_operations(operation_id text primary key, payload jsonb, outcome text, result jsonb, completed_at timestamptz)`. Existing columns must match the names in the location plan, including `activities(product_id, activity_type, occurred_at)` and its default serial key. Preserve the existing assignment unique constraint and foreign keys. Review and repair existing inconsistent records separately; never reset operational data. Confirm migration and permissions in an isolated database first.
+
+The server uses a bounded pool (10 connections), acquisition and statement timeouts. All writes are unauthenticated: keep loopback or a restricted development network and do not deploy publicly without approval, authentication and HTTPS. This records app-confirmed inventory, not rack verification. `STORE_TIMEZONE` is required and controls expiry using the server clock; the expiry date is valid through the end of that store calendar day. Take-off remains possible for expired stock; place, return, move and dispatch require valid expiry. `RecordExpiredScan` only records a rejection and does not dispose of stock.
+
+### JSON contract
+
+All responses have `Cache-Control: no-store`. `POST /location/commands` accepts exactly:
+
+```json
+{"operationID":"df04d58a-4da0-45f5-acbe-9a274e2e9a01","action":"PlaceProduct","productID":"WH-PROD-001","productVersion":0,"source":null,"target":{"slotId":1,"version":0}}
+```
+
+`operationID` is a UUID; product ID is preserved verbatim, nonblank and at most 512 characters. Versions are nonnegative 32-bit integers, and slot IDs are 1–8. `PlaceProduct` requires null source and a target; `MoveProduct` requires distinct source and target; `TakeOffRack`, `ReturnProduct` and `DispatchProduct` require source and null target. `RecordExpiredScan` requires null target and source if and only if the product is bound. Every token is exactly `{ "slotId": number, "version": number }`. No extra fields are accepted.
+
+A terminal response is HTTP 200 for both commits and business conflicts:
+
+```json
+{"operationID":"df04d58a-4da0-45f5-acbe-9a274e2e9a01","command":{"operationID":"df04d58a-4da0-45f5-acbe-9a274e2e9a01","action":"PlaceProduct","productID":"WH-PROD-001","productVersion":0,"source":null,"target":{"slotId":1,"version":0}},"outcome":{"status":"committed","message":"OK"}}
+```
+
+Conflict outcomes have `status: "conflict"` and `message` one of `PRODUCT_NOT_FOUND`, `STALE_PRODUCT`, `INCONSISTENT_INVENTORY`, `STALE_SOURCE`, `STALE_TARGET`, `EXPIRY_UNKNOWN`, `EXPIRY_MISMATCH`, `INVALID_TRANSITION`. They are persisted and replayed unchanged. Reusing an ID with different payload returns HTTP 409 `{"error":"OPERATION_ID_MISMATCH"}`. Malformed input returns 400 `INVALID_INPUT`, oversized bodies 413 `BODY_TOO_LARGE`. Database errors return 503 `{"error":"LOCATION_UNAVAILABLE","retryable":true}` without details; the outcome may be uncertain, so retry or reconcile the **same** immutable command and ID. No automatic server retry is performed.
+
+`GET /location/operations/:id` returns the same terminal object or HTTP 200 `{"operationID":"...","status":"unresolved"}`. An unresolved response does not prove an in-flight transaction cannot commit; keep the durable command and retry the same ID. `GET /location/snapshot?productID=...` returns 404 `PRODUCT_NOT_FOUND` or HTTP 200 `{ "product": { "productID": string, "status": "EMPTY" | "OCCUPIED" | "PENDING_DISPATCH", "version": number, "expiry": "valid" | "expired" | "unknown" }, "slots": [{ "slotId": number, "productID": string | null, "assignedAt": string | null, "version": number, "status": string | null }] }`. The snapshot is read in a read-only repeatable-read transaction; clients must validate all eight slots and bindings before presenting actions. Query parameters are URL encoded. Wrong methods return 405 and unknown routes 404.
+
+Lock order is ledger ID, the requested stock and all stocks discovered in bound slots in `product_id COLLATE "C"` order, then all slot rows in ascending ID order. The initial binding discovery is unlocked: if a new binding appears before the slot locks are obtained, the transaction rolls back and retries up to twice with the same ID; continued contention returns retryable 503. Every bound slot must reference an existing stock in `OCCUPIED` or `PENDING_DISPATCH`; malformed bindings result in `INCONSISTENT_INVENTORY`. Checked updates, activity insertion, and terminal ledger result are atomic. An activity failure rolls back the entire operation. SQL errors, timeouts and lost responses are not business conflicts. Retain ledger rows indefinitely.
+
+**All external inventory writers must participate in the same concurrency protocol.** They must lock relevant stock rows in `product_id COLLATE "C"` order before locking affected slot rows in ascending `slot_id` order, preserve stock/slot consistency atomically, and increment every changed stock and slot version in the same transaction. This includes status, expiry, assignment, and other changes that affect command eligibility or snapshot preconditions. Writers that skip version increments can make stale commands appear current; writers that ignore the lock order can cause deadlocks or undermine consistency. Database privileges and operational procedures must enforce this requirement; this service cannot guarantee safety against non-participating writers.
+
+For optional PostgreSQL integration tests, set `LOCATION_TEST_DATABASE_URL` to a **disposable isolated database** whose user may create/drop schemas, then run `npm test`. The suite creates and drops a randomly named private schema. Never use operational data. Without that variable the PostgreSQL suite is skipped.
+
 ## Integration verification still required
 
-With approved credentials and an isolated test environment, verify the deployed schema supports the fixed key query and the scanned values match records. Seed dedicated fixtures expiring yesterday, today and tomorrow in the confirmed store timezone, avoiding operational records (the plan proposes `WH-PROD-001` for the expired fixture). Test those plus a missing expiry, an unknown barcode and backend unavailability. Check that stock, slot and activity values remain unchanged. Then test the intended app flow on Android. The automated tests use injected fakes and do not contact Firebase or verify deployed IAM/schema.
+With approved credentials and an isolated test environment, verify the deployed schema supports the fixed key query and the scanned values match records. Seed dedicated fixtures expiring yesterday, today and tomorrow in the confirmed store timezone, avoiding operational records (the plan proposes `WH-PROD-001` for the expired fixture). Test those plus a missing expiry, an unknown barcode and backend unavailability. Check that stock, slot and activity values remain unchanged. Then test the intended app flow on Android. The receiving tests use injected fakes; the optional PostgreSQL tests use a disposable schema. Neither verifies deployed Firebase IAM or the deployed schema.
