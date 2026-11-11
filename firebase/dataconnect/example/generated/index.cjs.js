@@ -158,6 +158,51 @@ exports.getLocationSnapshot = function getLocationSnapshot(dcOrVars, varsOrOptio
 }
 ;
 
+const dashboardStocksRef = (dcOrVars, vars) => {
+  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
+  dcInstance._useGeneratedSdk();
+  return queryRef(dcInstance, 'DashboardStocks', inputVars);
+}
+dashboardStocksRef.operationName = 'DashboardStocks';
+exports.dashboardStocksRef = dashboardStocksRef;
+
+exports.dashboardStocks = function dashboardStocks(dcOrVars, varsOrOptions, options) {
+
+  const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
+  return executeQuery(dashboardStocksRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+}
+;
+
+const dashboardSlotsRef = (dcOrVars, vars) => {
+  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
+  dcInstance._useGeneratedSdk();
+  return queryRef(dcInstance, 'DashboardSlots', inputVars);
+}
+dashboardSlotsRef.operationName = 'DashboardSlots';
+exports.dashboardSlotsRef = dashboardSlotsRef;
+
+exports.dashboardSlots = function dashboardSlots(dcOrVars, varsOrOptions, options) {
+
+  const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
+  return executeQuery(dashboardSlotsRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+}
+;
+
+const dashboardActivitiesRef = (dcOrVars, vars) => {
+  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
+  dcInstance._useGeneratedSdk();
+  return queryRef(dcInstance, 'DashboardActivities', inputVars);
+}
+dashboardActivitiesRef.operationName = 'DashboardActivities';
+exports.dashboardActivitiesRef = dashboardActivitiesRef;
+
+exports.dashboardActivities = function dashboardActivities(dcOrVars, varsOrOptions, options) {
+
+  const { dc: dcInstance, vars: inputVars, options: inputOpts } = validateArgsWithOptions(connectorConfig, dcOrVars, varsOrOptions, options, true, true);
+  return executeQuery(dashboardActivitiesRef(dcInstance, inputVars), inputOpts && { fetchPolicy: inputOpts.fetchPolicy });
+}
+;
+
 const getStockByProductIdRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
   dcInstance._useGeneratedSdk();

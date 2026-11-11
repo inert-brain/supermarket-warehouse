@@ -12,6 +12,9 @@ This README will guide you through the process of using the generated JavaScript
   - [*GetProductContext*](#getproductcontext)
   - [*GetSlotMenu*](#getslotmenu)
   - [*GetLocationSnapshot*](#getlocationsnapshot)
+  - [*DashboardStocks*](#dashboardstocks)
+  - [*DashboardSlots*](#dashboardslots)
+  - [*DashboardActivities*](#dashboardactivities)
   - [*GetStockByProductID*](#getstockbyproductid)
 - [**Mutations**](#mutations)
   - [*PlaceProduct*](#placeproduct)
@@ -517,6 +520,342 @@ executeQuery(ref).then((response) => {
   console.log(data.stock);
   console.log(data.rackSlots);
   console.log(data.productBindings);
+});
+```
+
+## DashboardStocks
+You can execute the `DashboardStocks` query using the following action shortcut function, or by calling `executeQuery()` after calling the following `QueryRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
+```typescript
+dashboardStocks(vars: DashboardStocksVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardStocksData, DashboardStocksVariables>;
+
+interface DashboardStocksRef {
+  ...
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: DashboardStocksVariables): QueryRef<DashboardStocksData, DashboardStocksVariables>;
+}
+export const dashboardStocksRef: DashboardStocksRef;
+```
+You can also pass in a `DataConnect` instance to the action shortcut function or `QueryRef` function.
+```typescript
+dashboardStocks(dc: DataConnect, vars: DashboardStocksVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardStocksData, DashboardStocksVariables>;
+
+interface DashboardStocksRef {
+  ...
+  (dc: DataConnect, vars: DashboardStocksVariables): QueryRef<DashboardStocksData, DashboardStocksVariables>;
+}
+export const dashboardStocksRef: DashboardStocksRef;
+```
+
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the dashboardStocksRef:
+```typescript
+const name = dashboardStocksRef.operationName;
+console.log(name);
+```
+
+### Variables
+The `DashboardStocks` query requires an argument of type `DashboardStocksVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+
+```typescript
+export interface DashboardStocksVariables {
+  after?: string | null;
+  limit: number;
+}
+```
+### Return Type
+Recall that executing the `DashboardStocks` query returns a `QueryPromise` that resolves to an object with a `data` property.
+
+The `data` property is an object of type `DashboardStocksData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+```typescript
+export interface DashboardStocksData {
+  stocks?: unknown[] | null;
+}
+```
+### Using `DashboardStocks`'s action shortcut function
+
+```typescript
+import { getDataConnect } from 'firebase/data-connect';
+import { connectorConfig, dashboardStocks, DashboardStocksVariables } from '@dataconnect/example';
+
+// The `DashboardStocks` query requires an argument of type `DashboardStocksVariables`:
+const dashboardStocksVars: DashboardStocksVariables = {
+  after: ..., // optional
+  limit: ...,
+};
+
+// Call the `dashboardStocks()` function to execute the query.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await dashboardStocks(dashboardStocksVars);
+// Variables can be defined inline as well.
+const { data } = await dashboardStocks({ after: ..., limit: ..., });
+
+// You can also pass in a `DataConnect` instance to the action shortcut function.
+const dataConnect = getDataConnect(connectorConfig);
+const { data } = await dashboardStocks(dataConnect, dashboardStocksVars);
+
+console.log(data.stocks);
+
+// Or, you can use the `Promise` API.
+dashboardStocks(dashboardStocksVars).then((response) => {
+  const data = response.data;
+  console.log(data.stocks);
+});
+```
+
+### Using `DashboardStocks`'s `QueryRef` function
+
+```typescript
+import { getDataConnect, executeQuery } from 'firebase/data-connect';
+import { connectorConfig, dashboardStocksRef, DashboardStocksVariables } from '@dataconnect/example';
+
+// The `DashboardStocks` query requires an argument of type `DashboardStocksVariables`:
+const dashboardStocksVars: DashboardStocksVariables = {
+  after: ..., // optional
+  limit: ...,
+};
+
+// Call the `dashboardStocksRef()` function to get a reference to the query.
+const ref = dashboardStocksRef(dashboardStocksVars);
+// Variables can be defined inline as well.
+const ref = dashboardStocksRef({ after: ..., limit: ..., });
+
+// You can also pass in a `DataConnect` instance to the `QueryRef` function.
+const dataConnect = getDataConnect(connectorConfig);
+const ref = dashboardStocksRef(dataConnect, dashboardStocksVars);
+
+// Call `executeQuery()` on the reference to execute the query.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await executeQuery(ref);
+
+console.log(data.stocks);
+
+// Or, you can use the `Promise` API.
+executeQuery(ref).then((response) => {
+  const data = response.data;
+  console.log(data.stocks);
+});
+```
+
+## DashboardSlots
+You can execute the `DashboardSlots` query using the following action shortcut function, or by calling `executeQuery()` after calling the following `QueryRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
+```typescript
+dashboardSlots(vars: DashboardSlotsVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardSlotsData, DashboardSlotsVariables>;
+
+interface DashboardSlotsRef {
+  ...
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: DashboardSlotsVariables): QueryRef<DashboardSlotsData, DashboardSlotsVariables>;
+}
+export const dashboardSlotsRef: DashboardSlotsRef;
+```
+You can also pass in a `DataConnect` instance to the action shortcut function or `QueryRef` function.
+```typescript
+dashboardSlots(dc: DataConnect, vars: DashboardSlotsVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardSlotsData, DashboardSlotsVariables>;
+
+interface DashboardSlotsRef {
+  ...
+  (dc: DataConnect, vars: DashboardSlotsVariables): QueryRef<DashboardSlotsData, DashboardSlotsVariables>;
+}
+export const dashboardSlotsRef: DashboardSlotsRef;
+```
+
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the dashboardSlotsRef:
+```typescript
+const name = dashboardSlotsRef.operationName;
+console.log(name);
+```
+
+### Variables
+The `DashboardSlots` query requires an argument of type `DashboardSlotsVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+
+```typescript
+export interface DashboardSlotsVariables {
+  after?: number | null;
+  limit: number;
+}
+```
+### Return Type
+Recall that executing the `DashboardSlots` query returns a `QueryPromise` that resolves to an object with a `data` property.
+
+The `data` property is an object of type `DashboardSlotsData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+```typescript
+export interface DashboardSlotsData {
+  slots?: unknown[] | null;
+}
+```
+### Using `DashboardSlots`'s action shortcut function
+
+```typescript
+import { getDataConnect } from 'firebase/data-connect';
+import { connectorConfig, dashboardSlots, DashboardSlotsVariables } from '@dataconnect/example';
+
+// The `DashboardSlots` query requires an argument of type `DashboardSlotsVariables`:
+const dashboardSlotsVars: DashboardSlotsVariables = {
+  after: ..., // optional
+  limit: ...,
+};
+
+// Call the `dashboardSlots()` function to execute the query.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await dashboardSlots(dashboardSlotsVars);
+// Variables can be defined inline as well.
+const { data } = await dashboardSlots({ after: ..., limit: ..., });
+
+// You can also pass in a `DataConnect` instance to the action shortcut function.
+const dataConnect = getDataConnect(connectorConfig);
+const { data } = await dashboardSlots(dataConnect, dashboardSlotsVars);
+
+console.log(data.slots);
+
+// Or, you can use the `Promise` API.
+dashboardSlots(dashboardSlotsVars).then((response) => {
+  const data = response.data;
+  console.log(data.slots);
+});
+```
+
+### Using `DashboardSlots`'s `QueryRef` function
+
+```typescript
+import { getDataConnect, executeQuery } from 'firebase/data-connect';
+import { connectorConfig, dashboardSlotsRef, DashboardSlotsVariables } from '@dataconnect/example';
+
+// The `DashboardSlots` query requires an argument of type `DashboardSlotsVariables`:
+const dashboardSlotsVars: DashboardSlotsVariables = {
+  after: ..., // optional
+  limit: ...,
+};
+
+// Call the `dashboardSlotsRef()` function to get a reference to the query.
+const ref = dashboardSlotsRef(dashboardSlotsVars);
+// Variables can be defined inline as well.
+const ref = dashboardSlotsRef({ after: ..., limit: ..., });
+
+// You can also pass in a `DataConnect` instance to the `QueryRef` function.
+const dataConnect = getDataConnect(connectorConfig);
+const ref = dashboardSlotsRef(dataConnect, dashboardSlotsVars);
+
+// Call `executeQuery()` on the reference to execute the query.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await executeQuery(ref);
+
+console.log(data.slots);
+
+// Or, you can use the `Promise` API.
+executeQuery(ref).then((response) => {
+  const data = response.data;
+  console.log(data.slots);
+});
+```
+
+## DashboardActivities
+You can execute the `DashboardActivities` query using the following action shortcut function, or by calling `executeQuery()` after calling the following `QueryRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
+```typescript
+dashboardActivities(vars: DashboardActivitiesVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardActivitiesData, DashboardActivitiesVariables>;
+
+interface DashboardActivitiesRef {
+  ...
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: DashboardActivitiesVariables): QueryRef<DashboardActivitiesData, DashboardActivitiesVariables>;
+}
+export const dashboardActivitiesRef: DashboardActivitiesRef;
+```
+You can also pass in a `DataConnect` instance to the action shortcut function or `QueryRef` function.
+```typescript
+dashboardActivities(dc: DataConnect, vars: DashboardActivitiesVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardActivitiesData, DashboardActivitiesVariables>;
+
+interface DashboardActivitiesRef {
+  ...
+  (dc: DataConnect, vars: DashboardActivitiesVariables): QueryRef<DashboardActivitiesData, DashboardActivitiesVariables>;
+}
+export const dashboardActivitiesRef: DashboardActivitiesRef;
+```
+
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the dashboardActivitiesRef:
+```typescript
+const name = dashboardActivitiesRef.operationName;
+console.log(name);
+```
+
+### Variables
+The `DashboardActivities` query requires an argument of type `DashboardActivitiesVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+
+```typescript
+export interface DashboardActivitiesVariables {
+  after?: number | null;
+  limit: number;
+}
+```
+### Return Type
+Recall that executing the `DashboardActivities` query returns a `QueryPromise` that resolves to an object with a `data` property.
+
+The `data` property is an object of type `DashboardActivitiesData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+```typescript
+export interface DashboardActivitiesData {
+  activities?: unknown[] | null;
+}
+```
+### Using `DashboardActivities`'s action shortcut function
+
+```typescript
+import { getDataConnect } from 'firebase/data-connect';
+import { connectorConfig, dashboardActivities, DashboardActivitiesVariables } from '@dataconnect/example';
+
+// The `DashboardActivities` query requires an argument of type `DashboardActivitiesVariables`:
+const dashboardActivitiesVars: DashboardActivitiesVariables = {
+  after: ..., // optional
+  limit: ...,
+};
+
+// Call the `dashboardActivities()` function to execute the query.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await dashboardActivities(dashboardActivitiesVars);
+// Variables can be defined inline as well.
+const { data } = await dashboardActivities({ after: ..., limit: ..., });
+
+// You can also pass in a `DataConnect` instance to the action shortcut function.
+const dataConnect = getDataConnect(connectorConfig);
+const { data } = await dashboardActivities(dataConnect, dashboardActivitiesVars);
+
+console.log(data.activities);
+
+// Or, you can use the `Promise` API.
+dashboardActivities(dashboardActivitiesVars).then((response) => {
+  const data = response.data;
+  console.log(data.activities);
+});
+```
+
+### Using `DashboardActivities`'s `QueryRef` function
+
+```typescript
+import { getDataConnect, executeQuery } from 'firebase/data-connect';
+import { connectorConfig, dashboardActivitiesRef, DashboardActivitiesVariables } from '@dataconnect/example';
+
+// The `DashboardActivities` query requires an argument of type `DashboardActivitiesVariables`:
+const dashboardActivitiesVars: DashboardActivitiesVariables = {
+  after: ..., // optional
+  limit: ...,
+};
+
+// Call the `dashboardActivitiesRef()` function to get a reference to the query.
+const ref = dashboardActivitiesRef(dashboardActivitiesVars);
+// Variables can be defined inline as well.
+const ref = dashboardActivitiesRef({ after: ..., limit: ..., });
+
+// You can also pass in a `DataConnect` instance to the `QueryRef` function.
+const dataConnect = getDataConnect(connectorConfig);
+const ref = dashboardActivitiesRef(dataConnect, dashboardActivitiesVars);
+
+// Call `executeQuery()` on the reference to execute the query.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await executeQuery(ref);
+
+console.log(data.activities);
+
+// Or, you can use the `Promise` API.
+executeQuery(ref).then((response) => {
+  const data = response.data;
+  console.log(data.activities);
 });
 ```
 

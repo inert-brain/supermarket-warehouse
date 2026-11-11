@@ -21,6 +21,33 @@ export interface Activity_Key {
   __typename?: 'Activity_Key';
 }
 
+export interface DashboardActivitiesData {
+  activities?: unknown[] | null;
+}
+
+export interface DashboardActivitiesVariables {
+  after?: number | null;
+  limit: number;
+}
+
+export interface DashboardSlotsData {
+  slots?: unknown[] | null;
+}
+
+export interface DashboardSlotsVariables {
+  after?: number | null;
+  limit: number;
+}
+
+export interface DashboardStocksData {
+  stocks?: unknown[] | null;
+}
+
+export interface DashboardStocksVariables {
+  after?: string | null;
+  limit: number;
+}
+
 export interface DispatchProductData {
   stock_updateMany: number;
   source: number;
@@ -303,6 +330,42 @@ export const getLocationSnapshotRef: GetLocationSnapshotRef;
 
 export function getLocationSnapshot(vars: GetLocationSnapshotVariables, options?: ExecuteQueryOptions): QueryPromise<GetLocationSnapshotData, GetLocationSnapshotVariables>;
 export function getLocationSnapshot(dc: DataConnect, vars: GetLocationSnapshotVariables, options?: ExecuteQueryOptions): QueryPromise<GetLocationSnapshotData, GetLocationSnapshotVariables>;
+
+interface DashboardStocksRef {
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: DashboardStocksVariables): QueryRef<DashboardStocksData, DashboardStocksVariables>;
+  /* Allow users to pass in custom DataConnect instances */
+  (dc: DataConnect, vars: DashboardStocksVariables): QueryRef<DashboardStocksData, DashboardStocksVariables>;
+  operationName: string;
+}
+export const dashboardStocksRef: DashboardStocksRef;
+
+export function dashboardStocks(vars: DashboardStocksVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardStocksData, DashboardStocksVariables>;
+export function dashboardStocks(dc: DataConnect, vars: DashboardStocksVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardStocksData, DashboardStocksVariables>;
+
+interface DashboardSlotsRef {
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: DashboardSlotsVariables): QueryRef<DashboardSlotsData, DashboardSlotsVariables>;
+  /* Allow users to pass in custom DataConnect instances */
+  (dc: DataConnect, vars: DashboardSlotsVariables): QueryRef<DashboardSlotsData, DashboardSlotsVariables>;
+  operationName: string;
+}
+export const dashboardSlotsRef: DashboardSlotsRef;
+
+export function dashboardSlots(vars: DashboardSlotsVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardSlotsData, DashboardSlotsVariables>;
+export function dashboardSlots(dc: DataConnect, vars: DashboardSlotsVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardSlotsData, DashboardSlotsVariables>;
+
+interface DashboardActivitiesRef {
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: DashboardActivitiesVariables): QueryRef<DashboardActivitiesData, DashboardActivitiesVariables>;
+  /* Allow users to pass in custom DataConnect instances */
+  (dc: DataConnect, vars: DashboardActivitiesVariables): QueryRef<DashboardActivitiesData, DashboardActivitiesVariables>;
+  operationName: string;
+}
+export const dashboardActivitiesRef: DashboardActivitiesRef;
+
+export function dashboardActivities(vars: DashboardActivitiesVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardActivitiesData, DashboardActivitiesVariables>;
+export function dashboardActivities(dc: DataConnect, vars: DashboardActivitiesVariables, options?: ExecuteQueryOptions): QueryPromise<DashboardActivitiesData, DashboardActivitiesVariables>;
 
 interface GetStockByProductIdRef {
   /* Allow users to create refs without passing in DataConnect */

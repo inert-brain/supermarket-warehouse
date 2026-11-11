@@ -76,6 +76,63 @@ query GetLocationSnapshot($productID: String!)
     }
 }
 
+# PUBLIC: these reporting reads expose full inventory and activity history.
+# Review this exposure before deploying; public Firebase config is not access control.
+# Data Connect 3.4.25 has no where_expr and rejects null in gt filters.
+# Fixed, parameterized SELECTs preserve a nullable first-page cursor without sentinels.
+query DashboardStocks($after: String, $limit: Int!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Full inventory is intentionally public for the read-only dashboard prototype."
+) {
+    stocks: _select(
+        sql: """
+        SELECT product_id AS "productID", current_status AS "currentStatus",
+               status_updated_at AS "statusUpdatedAt", description, expires_on AS "expiresOn"
+        FROM stocks
+        WHERE ($1::text IS NULL OR product_id > $1::text)
+        ORDER BY product_id ASC
+        LIMIT $2::int
+        """
+        params: [{ _expr: "vars.after" }, { _expr: "vars.limit" }]
+    )
+}
+
+query DashboardSlots($after: Int, $limit: Int!)
+@auth(
+    level: PUBLIC
+    insecureReason: "All slot assignments are intentionally public for the read-only dashboard prototype."
+) {
+    slots: _select(
+        sql: """
+        SELECT slot_id AS "slotId", assigned_product_id AS "productID", assigned_at AS "assignedAt"
+        FROM slots
+        WHERE ($1::int IS NULL OR slot_id > $1::int)
+        ORDER BY slot_id ASC
+        LIMIT $2::int
+        """
+        params: [{ _expr: "vars.after" }, { _expr: "vars.limit" }]
+    )
+}
+
+query DashboardActivities($after: Int, $limit: Int!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Full activity history is intentionally public for the read-only dashboard prototype."
+) {
+    activities: _select(
+        sql: """
+        SELECT activity_id AS "activityId", product_id AS "productID",
+               occurred_at AS "occurredAt", activity_type AS "activityType"
+        FROM activities
+        WHERE ($1::int IS NULL OR activity_id > $1::int)
+        ORDER BY activity_id ASC
+        LIMIT $2::int
+        """
+        params: [{ _expr: "vars.after" }, { _expr: "vars.limit" }]
+    )
+}
+
 query GetStockByProductID($productID: String!)
 @auth(
     level: PUBLIC
