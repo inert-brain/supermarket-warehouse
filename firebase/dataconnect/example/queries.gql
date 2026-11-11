@@ -7,6 +7,9 @@ query GetSlotBindings
     slots(where: { slotId: { ge: 1, le: 8 } }, limit: 8) {
         slotId
         productID
+        assignedAt
+        isOccupied
+        occupancyUpdatedAt
     }
 }
 
@@ -28,6 +31,8 @@ query GetProductContext($productID: String!)
         slotId
         productID
         assignedAt
+        isOccupied
+        occupancyUpdatedAt
     }
 }
 
@@ -40,6 +45,8 @@ query GetSlotMenu
         slotId
         productID
         assignedAt
+        isOccupied
+        occupancyUpdatedAt
         stock {
             productID
             currentStatus
@@ -64,6 +71,8 @@ query GetLocationSnapshot($productID: String!)
         slotId
         productID
         assignedAt
+        isOccupied
+        occupancyUpdatedAt
         stock {
             productID
             currentStatus
@@ -73,6 +82,8 @@ query GetLocationSnapshot($productID: String!)
         slotId
         productID
         assignedAt
+        isOccupied
+        occupancyUpdatedAt
     }
 }
 
@@ -105,7 +116,8 @@ query DashboardSlots($after: Int, $limit: Int!)
 ) {
     slots: _select(
         sql: """
-        SELECT slot_id AS "slotId", assigned_product_id AS "productID", assigned_at AS "assignedAt"
+        SELECT slot_id AS "slotId", assigned_product_id AS "productID", assigned_at AS "assignedAt",
+               is_occupied AS "isOccupied", occupancy_updated_at AS "occupancyUpdatedAt"
         FROM slots
         WHERE ($1::int IS NULL OR slot_id > $1::int)
         ORDER BY slot_id ASC

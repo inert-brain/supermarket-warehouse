@@ -1,6 +1,6 @@
 # Dashboard read-query contract
 
-These three operations are **PUBLIC, unauthenticated prototype reads**. They expose all stock records, slot assignments (including out-of-menu slots), and activity history. Review this exposure before any approved deployment. Public Firebase configuration is not access control. Nothing in this change is deployed, and no mutation operation or schema is added or changed.
+These three operations are **PUBLIC, unauthenticated prototype reads**. They expose all stock records, slot assignments (including out-of-menu slots), and activity history. Review this exposure before any approved deployment. Public Firebase configuration is not access control. Nothing in this change is deployed. Sensor/assignment mutation semantics and the additive nullable occupancy schema are documented in `LOCATION-CONTRACT.md`.
 
 Operations live in `example/queries.gql`, connector `example`, service `smart-warehouse-service`, region `asia-southeast1`.
 
@@ -41,7 +41,9 @@ stocks: [{
 slots: [{
   slotId: integer,
   productID: string | null,
-  assignedAt: timestamp string | null
+  assignedAt: timestamp string | null,
+  isOccupied: boolean | null,
+  occupancyUpdatedAt: timestamp string | null
 }]
 
 activities: [{
@@ -52,9 +54,24 @@ activities: [{
 }]
 ```
 
+## Occupancy interpretation
+
+For the school-demo scan rules, a slot is **demo-available** when both assignment
+fields are null and occupancy is false or null (`IS NOT TRUE`), regardless of
+observation time. Null occupancy is Unknown, not confirmed vacancy; old readings
+may be labelled old, never live. Timestamps are display/debugging only, not action
+gates. Known occupied unassigned slots are unidentified and not selectable.
+Assigned EMPTY + false/null means awaiting placement; assigned pending + false/null
+means reserved/off-rack. Neither is available to another product. Reassignment
+also permits OCCUPIED + false/null and preserves that stock status until a sensor
+report reconciles it; this temporary mismatch is an accepted demo limitation.
+Warehouse count remains OCCUPIED + PENDING_DISPATCH, not the number of physical
+true readings. Malformed assignments should warn/refresh, not silently clear
+bindings. No dashboard read-query or sensor behavior changes are required.
+
 ## Compiler compatibility and SDK
 
-Verified with Data Connect 3.4.25 (Firebase CLI 15.35.0). Its generated list queries do not support `where_expr` or a filter `_expr`; binding `gt: $after` compiles but rejects an explicit null at runtime. The dashboard operations therefore use fixed, parameterized read-only `_select` statements with `WHERE ($1 IS NULL OR key > $1)`, explicit parameter casts, `ORDER BY key ASC`, and `LIMIT $2`. Client values are bound parameters, never interpolated SQL. Existing generated-filter operations are unchanged.
+Verified with Data Connect 3.4.25 (Firebase CLI 15.35.0). Its generated list queries do not support `where_expr` or a filter `_expr`; binding `gt: $after` compiles but rejects an explicit null at runtime. The dashboard operations therefore use fixed, parameterized read-only `_select` statements with `WHERE ($1 IS NULL OR key > $1)`, explicit parameter casts, `ORDER BY key ASC`, and `LIMIT $2`. Client values are bound parameters, never interpolated SQL. Generated slot-filter operations also select both nullable occupancy fields.
 
 The SDK exports `dashboardStocks`, `dashboardSlots`, and `dashboardActivities` and their corresponding `Ref` helpers. `_select` responses are generated as `unknown[] | null` rather than typed table rows; consumers must validate against the row contract above. The runtime names remain `stocks`, `slots`, and `activities`.
 
@@ -72,4 +89,4 @@ node check-generated-sdk.cjs
 
 The final SDK check applies this repository's existing generated ambient-enum workaround and runs strict TypeScript validation. Emulator startup may regenerate the SDK, which is why the check follows it too.
 
-The test refuses nonempty tables and database overrides. It writes fixtures directly to a disposable local emulator database, then calls only read queries. It verifies empty datasets, null first-page cursors, exact response fields and nullable values, date/timestamp values, page sizes 100/100/5 over 205 rows per table, out-of-menu slots, ascending exclusive keys without gaps or duplicates, terminal empty pages, and rejection of a missing required limit. This is local validation, not a live Firebase test.
+The test refuses nonempty tables and database overrides. It writes fixtures directly to a disposable local emulator database, then calls only read queries. It verifies empty datasets, null first-page cursors, exact response fields and nullable values (including null/true/false occupancy and observation times), valid EMPTY awaiting-placement bindings, date/timestamp values, page sizes 100/100/5 over 205 rows per table, out-of-menu slots, ascending exclusive keys without gaps or duplicates, terminal empty pages, and rejection of a missing required limit. This is local validation, not a live Firebase test.

@@ -1,6 +1,6 @@
 """Offline tests: python -m unittest discover -v (no Firebase credentials)."""
 from copy import deepcopy
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import unittest
 from unittest.mock import Mock
 
@@ -11,6 +11,7 @@ from metrics import expiry_label, quality_warnings, slot_cards, stock_metrics
 from sync_state import sync_snapshot
 
 STAMP = "2026-01-01T12:00:00Z"
+REFERENCE = datetime.fromisoformat(STAMP)
 
 
 def stock(product="p1", status="OCCUPIED"):
@@ -18,8 +19,9 @@ def stock(product="p1", status="OCCUPIED"):
                 description=None, expiresOn=None)
 
 
-def slot(number=1, product=None):
-    return dict(slotId=number, productID=product, assignedAt=STAMP if product else None)
+def slot(number=1, product=None, occupied: bool | None = False, observed: str | None = STAMP):
+    return dict(slotId=number, productID=product, assignedAt=STAMP if product else None,
+                isOccupied=occupied, occupancyUpdatedAt=observed)
 
 
 def activity(number=1):
@@ -113,32 +115,124 @@ class ClientTests(unittest.TestCase):
             with self.assertRaises(SyncError):
                 validate_row(table, row)
 
+    def test_nullable_occupancy_contract(self):
+        for occupied in (None, False, True):
+            for observed in (None, STAMP, "2026-01-01T19:00:00+07:00"):
+                validate_row("slots", slot(occupied=occupied, observed=observed))
+        for field in ("isOccupied", "occupancyUpdatedAt"):
+            row = slot()
+            del row[field]
+            self.session.post.return_value = response("slots", [row])
+            with self.subTest(missing=field), self.assertRaises(SyncError):
+                self.client.read_table("slots")
+        for occupied in (0, 1, "false", [], {}):
+            with self.subTest(occupied=occupied), self.assertRaises(SyncError):
+                validate_row("slots", dict(slot(), isOccupied=occupied))
+        for observed in (True, 42, "yesterday", "2026-01-01T12:00:00"):
+            with self.subTest(observed=observed), self.assertRaises(SyncError):
+                validate_row("slots", dict(slot(), occupancyUpdatedAt=observed))
+
 
 class MetricTests(unittest.TestCase):
     def test_status_not_records_or_events(self):
         stocks = [stock("a"), stock("b"), stock("c", "PENDING_DISPATCH")] + [stock(str(i), "EMPTY") for i in range(4)]
-        result = stock_metrics(stocks, [slot(1, "c"), slot(2)])
-        self.assertEqual((result["warehouse"], result["on_rack"], result["pending_dispatch"], result["empty"]), (3, 2, 1, 4))
-        self.assertEqual(result["unassigned_slots"], 1)
-        self.assertEqual(slot_cards(stocks, [slot(1, "c")])[0]["status"], "PENDING_DISPATCH")
+        for observed in (STAMP, None, "2025-01-01T00:00:00Z"):
+            slots = [slot(1, "c", observed=observed), slot(2)]
+            result = stock_metrics(stocks, slots, REFERENCE)
+            self.assertEqual((result["warehouse"], result["on_rack"], result["pending_dispatch"], result["empty"]), (3, 2, 1, 4))
+            self.assertEqual(result["available_slots"], 1)
+        self.assertEqual(slot_cards(stocks, [slot(1, "c")], REFERENCE)[0]["status"], "Off-rack / reserved")
+
+    def test_slot_state_matrix(self):
+        stocks = [stock("a", "EMPTY"), stock("b"), stock("c", "PENDING_DISPATCH")]
+        slots = [slot(1), slot(2, "a"), slot(3, "b", True), slot(4, "c"),
+                 slot(5, occupied=True), slot(6, occupied=None), slot(7, observed=None),
+                 slot(8, observed="2026-01-01T11:59:29Z")]
+        before = deepcopy((stocks, slots))
+        cards = slot_cards(stocks, slots, REFERENCE)
+        self.assertEqual([card["status"] for card in cards[:5]],
+                         ["Available (demo)", "Awaiting placement", "Occupied", "Off-rack / reserved", "Occupied / unidentified"])
+        self.assertEqual([card["available"] for card in cards], [True, False, False, False, False, True, True, True])
+        self.assertEqual([card["productID"] for card in cards[1:4]], ["a", "b", "c"])
+        self.assertEqual(cards[7]["observation_status"], "31s old at sync")
+        self.assertEqual(cards[7]["occupancyUpdatedAt"], slots[7]["occupancyUpdatedAt"])
+        self.assertFalse(quality_warnings(stocks, slots, REFERENCE))
+        self.assertEqual(stock_metrics(stocks, slots, REFERENCE)["warehouse"], 2)
+        self.assertEqual((stocks, slots), before)
+
+    def test_demo_availability_ignores_observation_age_and_unknown(self):
+        observations = [None, "2026-01-01T18:59:20+07:00"] + [
+            (REFERENCE - timedelta(seconds=age)).isoformat()
+            for age in (0, 30, 30.001, 86400, -1)
+        ]
+        for observed in observations:
+            for occupied in (False, None, True):
+                for product in (None, "a"):
+                    with self.subTest(observed=observed, occupied=occupied, product=product):
+                        slots = [slot(1, product, occupied, observed)]
+                        before = deepcopy(slots)
+                        available = product is None and occupied is not True
+                        card = slot_cards([stock("a")], slots, REFERENCE)[0]
+                        self.assertEqual(card["available"], available)
+                        self.assertEqual(stock_metrics([stock("a")], slots, REFERENCE)["available_slots"], int(available))
+                        self.assertEqual(card["isOccupied"], occupied)
+                        self.assertEqual(card["occupancyUpdatedAt"], observed)
+                        if product is not None and occupied is None:
+                            self.assertEqual(card["status"], "Occupancy unknown / reserved")
+                        self.assertEqual(slots, before)
+
+    def test_observation_age_and_unknown_time_display(self):
+        for observed, label in ((None, "Unknown observation time"),
+                                ("2026-01-01T18:59:20+07:00", "40s old at sync"),
+                                ("2026-01-01T12:00:01Z", "Future timestamp / age unknown")):
+            for occupied in (None, False, True):
+                with self.subTest(observed=observed, occupied=occupied):
+                    card = slot_cards([], [slot(occupied=occupied, observed=observed)], REFERENCE)[0]
+                    self.assertEqual(card["observation_status"], label)
+
+    def test_old_or_undated_conflicts_still_warn_without_age_gating(self):
+        for observed in (None, "2025-01-01T00:00:00Z"):
+            slots = [slot(1, "a", True, observed)] + [slot(i) for i in range(2, 9)]
+            warnings = quality_warnings([stock("a", "EMPTY")], slots, REFERENCE)
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("conflicts", warnings[0])
+
+    def test_inconsistent_observations_warn_without_recounting(self):
+        stocks = [stock("a", "EMPTY"), stock("b"), stock("c", "PENDING_DISPATCH")]
+        slots = [slot(1, "a", True), slot(2, "b"), slot(3, "c", True)] + [slot(i) for i in range(4, 9)]
+        self.assertTrue(all(card["status"] == "Inconsistent / Sync again"
+                            for card in slot_cards(stocks, slots, REFERENCE)[:3]))
+        warnings = quality_warnings(stocks, slots, REFERENCE)
+        self.assertEqual(len(warnings), 3)
+        self.assertTrue(all("conflicts" in warning for warning in warnings))
+        self.assertEqual(stock_metrics(stocks, slots, REFERENCE)["warehouse"], 2)
 
     def test_empty(self):
-        result = stock_metrics([], [])
+        result = stock_metrics([], [], REFERENCE)
         self.assertEqual(result["warehouse"], 0)
-        self.assertEqual(result["unassigned_slots"], 0)
-        self.assertEqual(len(quality_warnings([], [])), 8)
-        self.assertTrue(all(card["status"] == "Unknown" for card in slot_cards([], [])))
+        self.assertEqual(result["available_slots"], 0)
+        self.assertEqual(len(quality_warnings([], [], REFERENCE)), 8)
+        self.assertTrue(all(card["status"].startswith("Unknown") for card in slot_cards([], [], REFERENCE)))
 
     def test_quality_and_unknown_cards(self):
         stocks = [stock("a"), stock("b", "EMPTY"), stock("c", "PENDING_DISPATCH")]
-        slots = [slot(1, "a"), slot(2, "a"), slot(3, "b"), slot(4, "missing"),
+        slots = [slot(1, "a", True), slot(2, "a", True), slot(3, "b", True), slot(4, "missing"),
                  dict(slot(5), assignedAt=STAMP), slot(9)]
         before = deepcopy((stocks, slots))
-        warnings = "\n".join(quality_warnings(stocks, slots))
+        warnings = "\n".join(quality_warnings(stocks, slots, REFERENCE))
         for text in ("missing", "outside", "bound to 2", "EMPTY", "has no slot", "unassigned but"):
             self.assertIn(text, warnings)
-        self.assertTrue(all(not card["available"] for card in slot_cards(stocks, slots)))
+        cards = slot_cards(stocks, slots, REFERENCE)
+        self.assertEqual([card["slotId"] for card in cards if card["available"]], [5])
+        self.assertEqual(stock_metrics(stocks, slots, REFERENCE)["available_slots"], 1)
         self.assertEqual((stocks, slots), before)
+
+    def test_duplicate_slots_and_missing_assignment_time_unavailable(self):
+        slots = [slot(), slot(), dict(slot(2, "a", True), assignedAt=None)]
+        self.assertTrue(all(not card["available"] for card in slot_cards([stock("a")], slots, REFERENCE)))
+        warnings = "\n".join(quality_warnings([stock("a")], slots, REFERENCE))
+        self.assertIn("duplicate records", warnings)
+        self.assertIn("has no assignedAt", warnings)
 
     def test_expiry_today_is_valid(self):
         today = date(2026, 1, 1)
@@ -148,6 +242,16 @@ class MetricTests(unittest.TestCase):
 
 
 class SnapshotTests(unittest.TestCase):
+    def test_old_connector_contract_retains_snapshot(self):
+        previous = {"completed_at": REFERENCE}
+        state = {"snapshot": previous}
+        session = Mock()
+        legacy_slot = {key: slot()[key] for key in ("slotId", "productID", "assignedAt")}
+        session.post.side_effect = [response("stocks", []), response("slots", [legacy_slot])]
+        self.assertFalse(sync_snapshot(state, lambda: FirebaseClient(Config("key", "app"), session)))
+        self.assertIs(state["snapshot"], previous)
+        self.assertIn("missing required fields", state["sync_error"])
+        self.assertEqual(session.post.call_count, 2)
     def test_real_client_partial_fetch_never_publishes(self):
         previous = {"stocks": [stock("old")], "slots": [], "activities": [],
                     "completed_at": datetime.now(timezone.utc)}

@@ -9,7 +9,7 @@ STATUSES = ("OCCUPIED", "PENDING_DISPATCH", "EMPTY")
 ACTIVITY_TYPES = ("ON_RACK", "OFF_RACK", "DISPATCHED", "REMOVED")
 FIELDS = {
     "stocks": ("productID", "currentStatus", "statusUpdatedAt", "description", "expiresOn"),
-    "slots": ("slotId", "productID", "assignedAt"),
+    "slots": ("slotId", "productID", "assignedAt", "isOccupied", "occupancyUpdatedAt"),
     "activities": ("activityId", "productID", "occurredAt", "activityType"),
 }
 OPERATIONS = {
@@ -70,6 +70,10 @@ def validate_row(table, row):
                 raise ValueError("Invalid product ID")
             if row["assignedAt"] is not None:
                 _timestamp(row["assignedAt"])
+            if row["isOccupied"] is not None and type(row["isOccupied"]) is not bool:
+                raise ValueError("Invalid occupancy boolean")
+            if row["occupancyUpdatedAt"] is not None:
+                _timestamp(row["occupancyUpdatedAt"])
         else:
             if not isinstance(row["productID"], str) or not row["productID"]:
                 raise ValueError("Invalid product ID")

@@ -1,150 +1,181 @@
-# PUBLIC writes are only appropriate for an isolated, single-phone prototype.
-# Expiry is decided by the phone. There are no version tokens or retry ledger.
-# Every failed check or activity insert rolls back the entire transaction.
-mutation PlaceProduct($productID: String!, $targetSlotID: Int!)
+# PUBLIC prototype only. Values are SQL parameters; slot locks serialize all writers.
+# Every failed row-count check or constraint rolls back the whole transaction.
+mutation ReportSlotOccupancy($slotID: Int!, $occupied: Boolean!)
 @auth(
     level: PUBLIC
-    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+    insecureReason: "Unauthenticated sensor reports are intentionally allowed for the isolated prototype."
 )
 @transaction {
-    stock_updateMany(
-        where: { productID: { eq: $productID }, currentStatus: { eq: EMPTY } }
-        data: { currentStatus: OCCUPIED, statusUpdatedAt_expr: "request.time" }
-    ) @check(expr: "this == 1", message: "STALE_STOCK")
-    # The unique product-assignment index also rejects an existing binding.
-    slot_updateMany(
-        where: {
-            slotId: { eq: $targetSlotID, ge: 1, le: 8 }
-            productID: { isNull: true }
-            assignedAt: { isNull: true }
+    observation: _execute(
+        sql: """
+        WITH observed AS MATERIALIZED (
+            SELECT slot_id, assigned_product_id, assigned_at
+            FROM slots
+            WHERE slot_id = $1::int AND slot_id BETWEEN 1 AND 8
+              AND ((assigned_product_id IS NULL AND assigned_at IS NULL)
+                   OR (assigned_product_id IS NOT NULL AND assigned_at IS NOT NULL))
+            FOR UPDATE
+        ), changed AS (
+            UPDATE stocks p
+            SET current_status = (CASE WHEN $2::boolean THEN 'OCCUPIED' ELSE 'PENDING_DISPATCH' END)::stock_status,
+                status_updated_at = $3::timestamptz
+            FROM observed s
+            WHERE p.product_id = s.assigned_product_id
+              AND (($2::boolean AND p.current_status IN ('EMPTY', 'PENDING_DISPATCH'))
+                   OR (NOT $2::boolean AND p.current_status = 'OCCUPIED'))
+            RETURNING p.product_id, p.current_status
+        ), logged AS (
+            INSERT INTO activities (product_id, activity_type, occurred_at)
+            SELECT product_id, (CASE WHEN current_status = 'OCCUPIED' THEN 'ON_RACK' ELSE 'OFF_RACK' END)::activity_type,
+                   $3::timestamptz FROM changed
+        )
+        UPDATE slots s SET is_occupied = $2::boolean, occupancy_updated_at = $3::timestamptz
+        FROM observed o WHERE s.slot_id = o.slot_id
+        """
+        params: [
+            { _expr: "vars.slotID" }
+            { _expr: "vars.occupied" }
+            { _expr: "request.time" }
+        ]
+    ) @check(expr: "this == 1", message: "INVALID_OR_INCONSISTENT_SLOT")
+    # The dependency is essential: 3.4.25 otherwise merges DML + query into invalid SQL.
+    query {
+        slot(
+            key: { slotId_expr: "response.observation == 1 ? vars.slotID : 0" }
+        ) {
+            slotId
+            productID
+            assignedAt
+            isOccupied
+            occupancyUpdatedAt
+            stock {
+                productID
+                currentStatus
+                statusUpdatedAt
+            }
         }
-        data: { productID: $productID, assignedAt_expr: "request.time" }
-    ) @check(expr: "this == 1", message: "STALE_TARGET")
-    activity_insert(data: { productID: $productID, activityType: ON_RACK })
+    }
 }
 
-mutation TakeOffRack($productID: String!, $sourceSlotID: Int!)
+# Assignment is not receipt; only an unassigned EMPTY product may be bound.
+mutation AssignProductToSlot($productID: String!, $targetSlotID: Int!)
 @auth(
     level: PUBLIC
-    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+    insecureReason: "Unauthenticated assignments are intentionally allowed for the isolated prototype."
 )
 @transaction {
-    stock_updateMany(
-        where: {
-            productID: { eq: $productID }
-            currentStatus: { eq: OCCUPIED }
-        }
-        data: {
-            currentStatus: PENDING_DISPATCH
-            statusUpdatedAt_expr: "request.time"
-        }
-    ) @check(expr: "this == 1", message: "STALE_STOCK")
-    # A matching no-op update checks the reservation without changing assignedAt.
-    source: slot_updateMany(
-        where: {
-            slotId: { eq: $sourceSlotID, ge: 1, le: 8 }
-            productID: { eq: $productID }
-            assignedAt: { isNull: false }
-        }
-        data: { productID: $productID }
-    ) @check(expr: "this == 1", message: "STALE_SOURCE")
-    activity_insert(data: { productID: $productID, activityType: OFF_RACK })
+    binding: _execute(
+        sql: """
+        WITH target AS MATERIALIZED (
+            SELECT * FROM slots
+            WHERE slot_id = $2::int AND slot_id BETWEEN 1 AND 8
+            FOR UPDATE
+        )
+        UPDATE slots s
+        SET assigned_product_id = $1::text,
+            assigned_at = $3::timestamptz
+        FROM target t, stocks p
+        WHERE s.slot_id = t.slot_id AND p.product_id = $1::text AND p.current_status = 'EMPTY'
+          AND t.is_occupied IS NOT TRUE
+          AND t.assigned_product_id IS NULL AND t.assigned_at IS NULL
+        """
+        params: [
+            { _expr: "vars.productID" }
+            { _expr: "vars.targetSlotID" }
+            { _expr: "request.time" }
+        ]
+    ) @check(expr: "this == 1", message: "STALE_STOCK_OR_TARGET")
 }
 
-mutation ReturnProduct($productID: String!, $sourceSlotID: Int!)
-@auth(
-    level: PUBLIC
-    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
-)
-@transaction {
-    stock_updateMany(
-        where: {
-            productID: { eq: $productID }
-            currentStatus: { eq: PENDING_DISPATCH }
-        }
-        data: { currentStatus: OCCUPIED, statusUpdatedAt_expr: "request.time" }
-    ) @check(expr: "this == 1", message: "STALE_STOCK")
-    source: slot_updateMany(
-        where: {
-            slotId: { eq: $sourceSlotID, ge: 1, le: 8 }
-            productID: { eq: $productID }
-            assignedAt: { isNull: false }
-        }
-        data: { productID: $productID }
-    ) @check(expr: "this == 1", message: "STALE_SOURCE")
-    activity_insert(data: { productID: $productID, activityType: ON_RACK })
-}
-
-mutation MoveProduct(
+mutation ChangeAssignedSlot(
     $productID: String!
     $sourceSlotID: Int!
     $targetSlotID: Int!
 )
 @auth(
     level: PUBLIC
-    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+    insecureReason: "Unauthenticated assignments are intentionally allowed for the isolated prototype."
 )
 @transaction {
-    stock_updateMany(
-        where: {
-            productID: { eq: $productID }
-            currentStatus: { in: [OCCUPIED, PENDING_DISPATCH] }
-        }
-        data: { currentStatus: OCCUPIED, statusUpdatedAt_expr: "request.time" }
-    ) @check(expr: "this == 1", message: "STALE_STOCK")
-    source: slot_updateMany(
-        where: {
-            slotId: { eq: $sourceSlotID, ge: 1, le: 8 }
-            productID: { eq: $productID }
-            assignedAt: { isNull: false }
-        }
-        data: { productID: null, assignedAt: null }
-    ) @check(expr: "this == 1", message: "STALE_SOURCE")
-    target: slot_updateMany(
-        where: {
-            slotId: { eq: $targetSlotID, ge: 1, le: 8, ne: $sourceSlotID }
-            productID: { isNull: true }
-            assignedAt: { isNull: true }
-        }
-        data: { productID: $productID, assignedAt_expr: "request.time" }
-    ) @check(expr: "this == 1", message: "STALE_TARGET")
-    activity_insert(data: { productID: $productID, activityType: ON_RACK })
+    binding: _execute(
+        sql: """
+        WITH locked AS MATERIALIZED (
+            SELECT * FROM slots
+            WHERE slot_id IN ($2::int, $3::int) AND slot_id BETWEEN 1 AND 8
+            ORDER BY slot_id FOR UPDATE
+        ), valid AS MATERIALIZED (
+            SELECT src.slot_id AS source_id, dst.slot_id AS target_id
+            FROM locked src, locked dst, stocks p
+            WHERE src.slot_id = $2::int AND dst.slot_id = $3::int
+              AND src.assigned_product_id = $1::text AND src.assigned_at IS NOT NULL
+              AND p.product_id = $1::text AND p.current_status IN ('EMPTY', 'OCCUPIED', 'PENDING_DISPATCH')
+              AND src.is_occupied IS NOT TRUE AND dst.is_occupied IS NOT TRUE
+              AND (src.slot_id = dst.slot_id OR (dst.assigned_product_id IS NULL AND dst.assigned_at IS NULL))
+        ), released AS (
+            UPDATE slots s SET assigned_product_id = NULL, assigned_at = NULL
+            FROM valid v WHERE s.slot_id = v.source_id AND v.source_id <> v.target_id
+            RETURNING s.slot_id
+        )
+        UPDATE slots s
+        SET assigned_product_id = $1::text,
+            assigned_at = CASE WHEN v.source_id = v.target_id THEN s.assigned_at ELSE $4::timestamptz END
+        FROM valid v
+        WHERE s.slot_id = v.target_id
+          AND (v.source_id = v.target_id OR EXISTS (SELECT 1 FROM released))
+        """
+        params: [
+            { _expr: "vars.productID" }
+            { _expr: "vars.sourceSlotID" }
+            { _expr: "vars.targetSlotID" }
+            { _expr: "request.time" }
+        ]
+    ) @check(expr: "this == 1", message: "STALE_STOCK_OR_SLOTS")
 }
 
 mutation DispatchProduct($productID: String!, $sourceSlotID: Int!)
 @auth(
     level: PUBLIC
-    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+    insecureReason: "Unauthenticated dispatch is intentionally allowed for the isolated prototype."
 )
 @transaction {
-    stock_updateMany(
-        where: {
-            productID: { eq: $productID }
-            currentStatus: { eq: PENDING_DISPATCH }
-        }
-        data: { currentStatus: EMPTY, statusUpdatedAt_expr: "request.time" }
-    ) @check(expr: "this == 1", message: "STALE_STOCK")
-    source: slot_updateMany(
-        where: {
-            slotId: { eq: $sourceSlotID, ge: 1, le: 8 }
-            productID: { eq: $productID }
-            assignedAt: { isNull: false }
-        }
-        data: { productID: null, assignedAt: null }
-    ) @check(expr: "this == 1", message: "STALE_SOURCE")
-    activity_insert(data: { productID: $productID, activityType: DISPATCHED })
+    dispatch: _execute(
+        sql: """
+        WITH source AS MATERIALIZED (
+            SELECT slot_id FROM slots
+            WHERE slot_id = $2::int AND slot_id BETWEEN 1 AND 8
+              AND assigned_product_id = $1::text AND assigned_at IS NOT NULL
+              AND is_occupied IS NOT TRUE
+            FOR UPDATE
+        ), changed AS (
+            UPDATE stocks p SET current_status = 'EMPTY', status_updated_at = $3::timestamptz
+            WHERE p.product_id = $1::text AND p.current_status IN ('EMPTY', 'OCCUPIED', 'PENDING_DISPATCH')
+              AND EXISTS (SELECT 1 FROM source)
+            RETURNING p.product_id
+        ), logged AS (
+            INSERT INTO activities (product_id, activity_type, occurred_at)
+            SELECT product_id, 'DISPATCHED'::activity_type, $3::timestamptz FROM changed
+        )
+        UPDATE slots s SET assigned_product_id = NULL, assigned_at = NULL
+        FROM source src WHERE s.slot_id = src.slot_id AND EXISTS (SELECT 1 FROM changed)
+        """
+        params: [
+            { _expr: "vars.productID" }
+            { _expr: "vars.sourceSlotID" }
+            { _expr: "request.time" }
+        ]
+    ) @check(expr: "this == 1", message: "STALE_STOCK_OR_SOURCE")
 }
 
 mutation RecordExpiredScan($productID: String!, $sourceSlotID: Int)
 @auth(
     level: PUBLIC
-    insecureReason: "Unauthenticated writes are intentionally allowed for the isolated prototype."
+    insecureReason: "Unauthenticated expired-scan logs are intentionally allowed for the isolated prototype."
 )
 @transaction {
-    # Validate the supplied binding without changing or locking inventory rows.
+    # EMPTY may now have an awaiting-placement binding. Logging changes no inventory.
     query
         @check(
-            expr: "response.query.stock != null && ((vars.sourceSlotID == null && response.query.stock.currentStatus == 'EMPTY' && response.query.bindings.size() == 0) || (vars.sourceSlotID != null && vars.sourceSlotID >= 1 && vars.sourceSlotID <= 8 && response.query.stock.currentStatus in ['OCCUPIED', 'PENDING_DISPATCH'] && response.query.bindings.size() == 1 && response.query.bindings[0].slotId == vars.sourceSlotID && response.query.bindings[0].assignedAt != null))"
+            expr: "response.query.stock != null && ((vars.sourceSlotID == null && response.query.stock.currentStatus == 'EMPTY' && response.query.bindings.size() == 0) || (vars.sourceSlotID != null && vars.sourceSlotID >= 1 && vars.sourceSlotID <= 8 && response.query.bindings.size() == 1 && response.query.bindings[0].slotId == vars.sourceSlotID && response.query.bindings[0].assignedAt != null))"
             message: "STALE_OR_INCONSISTENT"
         ) {
         stock(key: { productID: $productID }) {

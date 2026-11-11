@@ -42,4 +42,6 @@ type Slot @table(name: "slots", key: ["slotId"]) {
             constraintName: "slots_assigned_product_id_fkey"
         )
     assignedAt: Timestamp
+    isOccupied: Boolean
+    occupancyUpdatedAt: Timestamp
 }

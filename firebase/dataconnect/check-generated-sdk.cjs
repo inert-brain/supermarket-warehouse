@@ -16,13 +16,16 @@ for (const file of [
   if (file.endsWith('.d.ts')) {
     // Data Connect 3.4.25 emits an invalid empty statement after ambient enums.
     text = text.replace(/(export enum \w+ \{[^}]*\n\});/g, '$1');
-    assert.doesNotMatch(text, /\b(?:version|operationID|productVersion|sourceVersion|targetVersion|LocationOperation_Key|GetLocationOperationData)\b/);
+    assert.doesNotMatch(text, /\b(?:version|operationID|productVersion|sourceVersion|targetVersion|LocationOperation_Key|GetLocationOperationData|PlaceProductData|MoveProductData|TakeOffRackData|ReturnProductData)\b/);
   }
   if (file.endsWith('.js')) assert.doesNotMatch(text, /\bgetLocationOperation(?:Ref)?\b/);
   fs.writeFileSync(filename, text);
 }
 
-const program = ts.createProgram([path.join(__dirname, 'example/generated/index.d.ts')], {
+const program = ts.createProgram([
+  path.join(__dirname, 'example/generated/index.d.ts'),
+  path.join(__dirname, 'sdk-contract.test.ts'),
+], {
   noEmit: true,
   strict: true,
   skipLibCheck: false,
@@ -41,5 +44,5 @@ if (diagnostics.length) {
   }));
   process.exitCode = 1;
 } else {
-  console.log('Generated SDK: strict TypeScript compile passed (skipLibCheck=false), no versions or ledger API');
+  console.log('Generated SDK: strict TypeScript and occupancy API contracts passed (skipLibCheck=false); obsolete manual mutations absent');
 }

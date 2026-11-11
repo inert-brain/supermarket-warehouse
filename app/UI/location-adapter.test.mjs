@@ -1,22 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { commandValue, createLocationAdapter } from './location/service.ts';
+import { commandValue, createLocationAdapter, refreshCommand } from './location/service.ts';
 
-const command = { action: 'PlaceProduct', productID: '001', sourceSlotID: null, targetSlotID: 1 };
+const command = { action: 'AssignProductToSlot', productID: '001', sourceSlotID: null, targetSlotID: 1 };
 function transport(overrides = {}) {
   return { writesEnabled: true, async readSnapshot() { return null; }, async executeCommand() {}, ...overrides };
 }
 function snapshot() {
-  return { product: { productID: '001', status: 'EMPTY', expiry: 'valid' }, slots: Array.from({ length: 8 }, (_, i) => ({ slotId: i + 1, productID: null, assignedAt: null, status: null })) };
+  return { product: { productID: '001', status: 'EMPTY', expiry: 'valid' }, slots: Array.from({ length: 8 }, (_, i) => ({ slotId: i + 1, productID: null, assignedAt: null, status: null, isOccupied: false, occupancyUpdatedAt: new Date().toISOString() })) };
 }
 
 test('submits once, accepts SDK completion, and has no journal or recovery API', async () => {
   const sent = [];
   const adapter = createLocationAdapter(transport({ async executeCommand(value) { sent.push(value); } }));
   assert.deepEqual(Object.keys(adapter).sort(), ['read', 'submit', 'writesEnabled']);
-  assert.deepEqual(await adapter.submit(command), { status: 'committed', message: 'Inventory updated.' });
+  assert.deepEqual(await adapter.submit(command), { status: 'committed', message: 'Assignment saved. Put the product in Slot 1. Stock changes only when the rack detects the product.' });
   assert.deepEqual(sent, [command]);
-  assert.equal((await adapter.submit({ action: 'RecordExpiredScan', productID: '001', sourceSlotID: null, targetSlotID: null })).message, 'Expired scan recorded.');
+  assert.equal((await adapter.submit({ action: 'RecordExpiredScan', productID: '001', sourceSlotID: null, targetSlotID: null })).message, 'Expired scan recorded. Inventory and slot state unchanged.');
 });
 
 test('rejects duplicate taps rather than queueing a second mutation', async () => {
@@ -87,7 +87,38 @@ test('command validation rejects extra metadata and invalid source/target shapes
     { ...command, operationID: 'old-id' }, { ...command, productVersion: 0 },
     { ...command, sourceSlotID: 1 }, { ...command, targetSlotID: null },
     { ...command, targetSlotID: 1.5 }, { ...command, productID: '' },
-    { ...command, action: 'Other' }, { ...command, action: 'MoveProduct', sourceSlotID: 1 },
+    { ...command, action: 'Other' }, { ...command, action: 'ChangeAssignedSlot', sourceSlotID: 1 },
     { ...command, action: 'TakeOffRack' }, { ...command, action: 'RecordExpiredScan' },
   ]) assert.throws(() => commandValue(value), /Invalid location command/);
+});
+
+test('preflight accepts old/unknown occupancy but rejects changed bindings and known occupied targets', async () => {
+  let value = snapshot(), reads = 0, writes = 0;
+  const adapter = createLocationAdapter(transport({
+    async readSnapshot() { reads++; return value; },
+    async executeCommand() { writes++; },
+  }));
+  const signal = new AbortController().signal;
+  assert.equal(await refreshCommand(adapter, command, signal), value);
+  value.slots[0].isOccupied = true;
+  await assert.rejects(refreshCommand(adapter, command, signal), /not valid/);
+  value.slots[0].isOccupied = false;
+  value.slots[0].occupancyUpdatedAt = '2000-01-01T00:00:00Z';
+  assert.equal(await refreshCommand(adapter, command, signal), value);
+  value.slots[0].isOccupied = null;
+  value.slots[0].occupancyUpdatedAt = null;
+  assert.equal(await refreshCommand(adapter, command, signal), value);
+  value = snapshot();
+  value.product.status = 'PENDING_DISPATCH';
+  Object.assign(value.slots[0], { productID: '001', assignedAt: 'now', status: 'PENDING_DISPATCH' });
+  const dispatch = { action: 'DispatchProduct', productID: '001', sourceSlotID: 1, targetSlotID: null };
+  assert.equal(await refreshCommand(adapter, dispatch, signal), value);
+  Object.assign(value.slots[1], { ...value.slots[0], slotId: 2 });
+  Object.assign(value.slots[0], { productID: null, assignedAt: null, status: null });
+  await assert.rejects(refreshCommand(adapter, dispatch, signal), /assignment changed/);
+  value.product.status = 'OCCUPIED';
+  Object.assign(value.slots[1], { status: 'OCCUPIED', isOccupied: true });
+  await assert.rejects(refreshCommand(adapter, { ...dispatch, sourceSlotID: 2 }, signal), /not valid/);
+  assert.equal(reads, 7);
+  assert.equal(writes, 0);
 });

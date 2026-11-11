@@ -21,7 +21,7 @@ async function main() {
     const read = async (name, variables) => (await executeQuery(queryRef(dc, name, variables), { fetchPolicy: QueryFetchPolicy.SERVER_ONLY })).data;
     const contracts = [
       ['DashboardStocks', 'stocks', 'productID', ['productID', 'currentStatus', 'statusUpdatedAt', 'description', 'expiresOn']],
-      ['DashboardSlots', 'slots', 'slotId', ['slotId', 'productID', 'assignedAt']],
+      ['DashboardSlots', 'slots', 'slotId', ['slotId', 'productID', 'assignedAt', 'isOccupied', 'occupancyUpdatedAt']],
       ['DashboardActivities', 'activities', 'activityId', ['activityId', 'productID', 'occurredAt', 'activityType']],
     ];
     for (const [name, field] of contracts) {
@@ -32,7 +32,9 @@ async function main() {
     await db.query('INSERT INTO slots (slot_id) SELECT generate_series(-1,203)');
     await db.query("INSERT INTO activities (activity_id, product_id, occurred_at, activity_type) SELECT i, 'dashboard-' || lpad(i::text, 3, '0'), '2026-01-01T00:00:00Z', 'ON_RACK' FROM generate_series(1,205) i");
     await db.query("UPDATE stocks SET description = 'Example unit', expires_on = '2026-12-31', current_status = 'OCCUPIED' WHERE product_id = 'dashboard-002'");
-    await db.query("UPDATE slots SET assigned_product_id = 'dashboard-002', assigned_at = '2026-01-01T00:00:00Z' WHERE slot_id = 0");
+    await db.query("UPDATE slots SET assigned_product_id = 'dashboard-002', assigned_at = '2026-01-01T00:00:00Z', is_occupied = true, occupancy_updated_at = '2026-01-02T00:00:00Z' WHERE slot_id = 0");
+    // EMPTY assigned + vacant is awaiting placement, not corrupt inventory.
+    await db.query("UPDATE slots SET assigned_product_id = 'dashboard-003', assigned_at = '2026-01-01T00:00:00Z', is_occupied = false, occupancy_updated_at = '2026-01-02T00:00:00Z' WHERE slot_id = 1");
     for (const [name, field, key, fields] of contracts) {
       const expectedKeys = Array.from({ length: 205 }, (_, i) => field === 'stocks' ? `dashboard-${String(i + 1).padStart(3, '0')}` : field === 'slots' ? i - 1 : i + 1);
       const first = await read(name, { after: null, limit: 1 });
@@ -65,6 +67,12 @@ async function main() {
       if (field === 'slots') {
         assert.equal(rows[0].productID, null);
         assert.equal(rows[0].assignedAt, null);
+        assert.equal(rows[0].isOccupied, null);
+        assert.equal(rows[0].occupancyUpdatedAt, null);
+        assert.equal(rows[1].isOccupied, true);
+        assert.equal(Date.parse(rows[1].occupancyUpdatedAt), Date.parse('2026-01-02T00:00:00Z'));
+        assert.equal(rows[2].isOccupied, false);
+        assert.equal(rows[2].productID, 'dashboard-003');
         assert.equal(rows[1].productID, 'dashboard-002');
         assert.equal(Date.parse(rows[1].assignedAt), Date.parse('2026-01-01T00:00:00Z'));
       }

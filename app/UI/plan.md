@@ -1,5 +1,7 @@
 # Plan: Scan → Select Slot or Remove Product
 
+> Historical plan, superseded by [location/CONTRACT.md](location/CONTRACT.md) and [location/mvp-scan-plan.md](location/mvp-scan-plan.md). Current UI uses saved occupancy without age gating: bound true shows Already in Slot X with no picker/action; false/null or unassigned shows the picker regardless of stock status. Do not implement session/version/ledger machinery, timezone configuration, or immediate app-driven stock transitions below. Current commands save assignments only; rack sensors control placement/take-off/return. Expiry uses the phone's local date. Cloud/hardware/dashboard work is owned separately.
+
 ## Goal
 
 Extend the existing Expo scanner: after a known, non-expired barcode is scanned, show eight slot buttons in **4 columns × 2 rows**, followed by one full-width **Remove Product** button spanning all four columns. Reuse the direct Firebase Data Connect integration; do not restart the local backend or add SQLite synchronization.

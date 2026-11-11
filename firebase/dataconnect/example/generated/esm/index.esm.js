@@ -11,52 +11,40 @@ export const connectorConfig = {
   service: 'smart-warehouse-service',
   location: 'asia-southeast1'
 };
-export const placeProductRef = (dcOrVars, vars) => {
+export const reportSlotOccupancyRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
   dcInstance._useGeneratedSdk();
-  return mutationRef(dcInstance, 'PlaceProduct', inputVars);
+  return mutationRef(dcInstance, 'ReportSlotOccupancy', inputVars);
 }
-placeProductRef.operationName = 'PlaceProduct';
+reportSlotOccupancyRef.operationName = 'ReportSlotOccupancy';
 
-export function placeProduct(dcOrVars, vars) {
+export function reportSlotOccupancy(dcOrVars, vars) {
   const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
-  return executeMutation(placeProductRef(dcInstance, inputVars));
+  return executeMutation(reportSlotOccupancyRef(dcInstance, inputVars));
 }
 
-export const takeOffRackRef = (dcOrVars, vars) => {
+export const assignProductToSlotRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
   dcInstance._useGeneratedSdk();
-  return mutationRef(dcInstance, 'TakeOffRack', inputVars);
+  return mutationRef(dcInstance, 'AssignProductToSlot', inputVars);
 }
-takeOffRackRef.operationName = 'TakeOffRack';
+assignProductToSlotRef.operationName = 'AssignProductToSlot';
 
-export function takeOffRack(dcOrVars, vars) {
+export function assignProductToSlot(dcOrVars, vars) {
   const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
-  return executeMutation(takeOffRackRef(dcInstance, inputVars));
+  return executeMutation(assignProductToSlotRef(dcInstance, inputVars));
 }
 
-export const returnProductRef = (dcOrVars, vars) => {
+export const changeAssignedSlotRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
   dcInstance._useGeneratedSdk();
-  return mutationRef(dcInstance, 'ReturnProduct', inputVars);
+  return mutationRef(dcInstance, 'ChangeAssignedSlot', inputVars);
 }
-returnProductRef.operationName = 'ReturnProduct';
+changeAssignedSlotRef.operationName = 'ChangeAssignedSlot';
 
-export function returnProduct(dcOrVars, vars) {
+export function changeAssignedSlot(dcOrVars, vars) {
   const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
-  return executeMutation(returnProductRef(dcInstance, inputVars));
-}
-
-export const moveProductRef = (dcOrVars, vars) => {
-  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
-  dcInstance._useGeneratedSdk();
-  return mutationRef(dcInstance, 'MoveProduct', inputVars);
-}
-moveProductRef.operationName = 'MoveProduct';
-
-export function moveProduct(dcOrVars, vars) {
-  const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
-  return executeMutation(moveProductRef(dcInstance, inputVars));
+  return executeMutation(changeAssignedSlotRef(dcInstance, inputVars));
 }
 
 export const dispatchProductRef = (dcOrVars, vars) => {

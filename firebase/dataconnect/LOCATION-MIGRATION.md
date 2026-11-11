@@ -1,57 +1,49 @@
-# MVP schema and cloud deployment status
+# Occupancy migration handoff — not executed
 
-## Local change only
+This is a **local connector-only change** implementing `esp32/plan.md` and the
+relaxed scan rules in `app/UI/location/mvp-scan-plan.md`.
+No cloud SQL diff, migration, deployment, data reset, or resource cleanup was
+performed for this change. Existing stock, activity, assignments, enums,
+foreign keys, and the unique product-assignment index must be retained.
 
-The single-phone MVP removes `Stock.version`, `Slot.version`, and the
-`LocationOperation` schema. Connector operations no longer read or write these
-fields, accept version/operation-ID variables, or expose
-`GetLocationOperation`. The SDK is regenerated from this simplified contract.
-Original status/activity enums, timestamps, foreign keys, and unique product
-assignment are retained.
+## Intended additive schema change
 
-A cloud SQL diff was attempted against `smart-warehouse-3171e`. It printed that the database matches the simplified schema exactly, but exited with an authentication/unexpected error. Deployment was also attempted and failed because the Firebase CLI credentials require reauthentication. No cloud deployment, migration, or cleanup is confirmed successful. Local tests use a fresh in-memory emulator database, not saved emulator data or the cloud database.
+Add only nullable columns to `public.slots`:
 
-To finish from `firebase/`:
+- `is_occupied boolean` (`Slot.isOccupied`)
+- `occupancy_updated_at timestamptz` (`Slot.occupancyUpdatedAt`)
 
-```sh
-firebase login --reauth
-firebase dataconnect:sql:diff --project smart-warehouse-3171e
-firebase deploy --only dataconnect --project smart-warehouse-3171e
-```
+No false/default values or backfill: existing rows must start Unknown until a
+real report arrives. Keep `assigned_product_id` and `assigned_at` unchanged.
+EMPTY + assigned + vacant/unknown is a valid awaiting-placement state, not a
+reason to clear data. Do not initialize all eight sensors to vacant. The relaxed
+scan rules need no additional schema migration: false/null occupancy permits
+actions, and observation age is display/debugging only. Reassignment preserves
+any existing EMPTY/OCCUPIED/PENDING_DISPATCH status, including temporary mismatch
+with saved occupancy; subsequent unchanged sensor behavior reconciles it.
 
-If the diff requests changes, review it before running `firebase dataconnect:sql:migrate --project smart-warehouse-3171e`. Do not reset stock, slot, or activity data.
+## Later coordinated rollout (owner action, not this task)
 
-## Authorized cleanup, not executed here
+1. Confirm project, service, connector, database and backups. Current local
+   configuration is `smart-warehouse-service` / `example` /
+   `smart-warehouse-database` in `asia-southeast1`; the prior project reference
+   is `smart-warehouse-3171e`. Verify before any cloud action.
+2. Review the actual cloud SQL diff. Limit this milestone to the two additive
+   nullable columns; do not bundle destructive version/ledger cleanup from
+   older plans. Preserve operational inventory and history.
+3. Coordinate app/firmware/dashboard callers. `PlaceProduct`, `MoveProduct`,
+   `TakeOffRack`, `ReturnProduct` are removed. Phone assignment is not receipt;
+   ESP32 sends only slot ID/occupancy; dashboard must accept EMPTY bindings and
+   read both observation fields. Those clients are outside this implementation.
+4. Rehearse compiler and disposable emulator tests from `LOCATION-CONTRACT.md`.
+   Review PUBLIC access before any deployment: this is intentionally an
+   unauthenticated isolated prototype, not production authorization.
+5. If separately approved, apply reviewed additive migration and coordinated
+   connector/client rollout. Source edits alone do not change Firebase.
+6. Start real reports to establish observations; compare existing stock states
+   with physical readings. Startup matching occupied states must not create
+   duplicate receipts. Investigate inconsistent assignments instead of resetting.
 
-The user explicitly authorizes removing the ledger schema and its cloud data
-for this MVP. The parent owns reviewing and executing that cleanup. If the
-previous additions reached the target database, the intended obsolete objects
-are:
-
-- `public.stocks.version`
-- `public.slots.version`
-- `public.location_operations` (including the operation ledger data)
-
-Do not assume those names or their presence without inspecting the real schema.
-Removing source declarations alone does not prove these SQL objects were
-removed; compatible schema validation may retain extra columns/tables.
-
-Before the parent applies anything:
-
-1. Confirm the intended project/service/connector/database and inventory data.
-   Current config names are `smart-warehouse-3171e` / `smart-warehouse-service` /
-   `example` / `smart-warehouse-database`, in `asia-southeast1`.
-2. Back up the database and review dependencies/other writers. Coordinate client
-   changes: the new connector API is incompatible with version/operation-ID
-   callers and ledger reconciliation. UI/backend are outside this task's scope.
-3. Review the actual SQL diff and validation mode. Limit intentional destructive
-   changes to the obsolete version columns and ledger; preserve stock, slot,
-   activity, enum, timestamp, and assignment-constraint data/schema.
-4. Rehearse on an isolated copy, including the conditional mutations and
-   rollback tests. Do not reset the operational database to match fixtures.
-5. Have the parent coordinate connector deployment, any necessary SQL cleanup,
-   and client rollout. Verify the resulting schema and generated API afterward.
-
-No automatic cleanup SQL or deployment hook is included. Durable idempotency
-and version/ABA protection are deliberately absent, not a migration TODO. See
-`LOCATION-CONTRACT.md` for the single-phone retry and expiry limitations.
+Older deployment attempts/cleanup notes do not authorize deployment here.
+No migration/deployment hook is included. No custom server, version protocol,
+operation ledger, or expiry service is introduced.

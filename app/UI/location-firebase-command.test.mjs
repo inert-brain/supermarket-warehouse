@@ -10,22 +10,24 @@ import { mapLocationSnapshot } from './location/firebase-snapshot.ts';
 
 const command = (action, sourceSlotID, targetSlotID) => ({ action, productID: ' 001 ', sourceSlotID, targetSlotID });
 
-test('maps exactly the six mutation names with only applicable flat variables', () => {
+test('maps exactly the four mutation names with only applicable flat variables', () => {
   for (const [value, extra] of [
-    [command('PlaceProduct', null, 2), { targetSlotID: 2 }],
-    ...['TakeOffRack', 'ReturnProduct', 'DispatchProduct'].map(action => [command(action, 1, null), { sourceSlotID: 1 }]),
-    [command('MoveProduct', 1, 2), { sourceSlotID: 1, targetSlotID: 2 }],
+    [command('AssignProductToSlot', null, 2), { targetSlotID: 2 }],
+    [command('ChangeAssignedSlot', 1, 2), { sourceSlotID: 1, targetSlotID: 2 }],
+    [command('DispatchProduct', 1, null), { sourceSlotID: 1 }],
     [command('RecordExpiredScan', 1, null), { sourceSlotID: 1 }],
     [command('RecordExpiredScan', null, null), { sourceSlotID: null }],
   ]) assert.deepEqual(mutationForCommand(value), { name: value.action, variables: { productID: ' 001 ', ...extra } });
 });
 
-test('invalid commands never reach Firebase', async () => {
+test('invalid commands and manual physical transitions never reach Firebase', async () => {
   let calls = 0;
   const transport = createCommandTransport({ async mutate() { calls++; } });
-  for (const value of [command('PlaceProduct', 1, 2), command('MoveProduct', 1, 1), command('DispatchProduct', null, null), { ...command('PlaceProduct', null, 1), productVersion: 0 }]) {
-    await assert.rejects(transport.executeCommand(value), /Invalid location command/);
-  }
+  for (const value of [
+    command('AssignProductToSlot', 1, 2), command('ChangeAssignedSlot', 1, 1), command('DispatchProduct', null, null),
+    { ...command('AssignProductToSlot', null, 1), productVersion: 0 },
+    ...['PlaceProduct', 'MoveProduct', 'TakeOffRack', 'ReturnProduct'].map(action => command(action, 1, 2)),
+  ]) await assert.rejects(transport.executeCommand(value), /Invalid location command/);
   assert.equal(calls, 0);
 });
 
@@ -34,15 +36,15 @@ test('direct SDK success needs no operation lookup or response envelope', async 
   const transport = createCommandTransport({ async mutate(name, variables) { calls.push([name, variables]); return { data: {} }; } });
   assert.deepEqual(Object.keys(transport), ['executeCommand']);
   const adapter = createLocationAdapter({ writesEnabled: true, async readSnapshot() { return null; }, ...transport });
-  assert.equal((await adapter.submit(command('MoveProduct', 1, 2))).status, 'committed');
-  assert.deepEqual(calls, [['MoveProduct', { productID: ' 001 ', sourceSlotID: 1, targetSlotID: 2 }]]);
+  assert.equal((await adapter.submit(command('ChangeAssignedSlot', 1, 2))).status, 'committed');
+  assert.deepEqual(calls, [['ChangeAssignedSlot', { productID: ' 001 ', sourceSlotID: 1, targetSlotID: 2 }]]);
 });
 
 test('SDK failure is surfaced once without lookup or mutation retry', async () => {
   let calls = 0;
   const failure = new Error('network response lost');
   const transport = createCommandTransport({ async mutate() { calls++; throw failure; } });
-  await assert.rejects(transport.executeCommand(command('PlaceProduct', null, 1)), error => error === failure);
+  await assert.rejects(transport.executeCommand(command('AssignProductToSlot', null, 1)), error => error === failure);
   assert.equal(calls, 1);
 });
 
@@ -50,7 +52,7 @@ test('Firebase SDK wiring uses server-only snapshots, phone date, and direct mut
   const calls = [], exports = {};
   const data = {
     stock: { productID: ' 001 ', currentStatus: 'EMPTY', expiresOn: '2026-11-10', description: null },
-    rackSlots: Array.from({ length: 8 }, (_, i) => ({ slotId: i + 1, productID: null, assignedAt: null, stock: null })),
+    rackSlots: Array.from({ length: 8 }, (_, i) => ({ slotId: i + 1, productID: null, assignedAt: null, stock: null, isOccupied: null, occupancyUpdatedAt: null })),
     productBindings: [],
   };
   const modules = {
@@ -71,11 +73,11 @@ test('Firebase SDK wiring uses server-only snapshots, phone date, and direct mut
   runInNewContext(js, { exports, require: name => modules[name] });
   const transport = exports.firebaseLocationTransport;
   assert.equal((await transport.readSnapshot(' 001 ')).product.expiry, 'expired');
-  await transport.executeCommand(command('PlaceProduct', null, 2));
+  await transport.executeCommand(command('AssignProductToSlot', null, 2));
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
     ['query', 'connection', 'GetLocationSnapshot', { productID: ' 001 ' }],
     ['read', 'query-ref', { fetchPolicy: 'server-only' }],
-    ['mutation', 'connection', 'PlaceProduct', { productID: ' 001 ', targetSlotID: 2 }],
+    ['mutation', 'connection', 'AssignProductToSlot', { productID: ' 001 ', targetSlotID: 2 }],
     ['write', 'mutation-ref'],
   ]);
 });

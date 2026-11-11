@@ -11,13 +11,12 @@ export function mutationForCommand(value: Command): { name: Command['action']; v
   const command = commandValue(value);
   const variables: CommandVariables = { productID: command.productID };
   switch (command.action) {
-    case 'PlaceProduct':
+    case 'AssignProductToSlot':
       variables.targetSlotID = command.targetSlotID!; break;
-    case 'TakeOffRack':
-    case 'ReturnProduct':
+
     case 'DispatchProduct':
       variables.sourceSlotID = command.sourceSlotID!; break;
-    case 'MoveProduct':
+    case 'ChangeAssignedSlot':
       variables.sourceSlotID = command.sourceSlotID!;
       variables.targetSlotID = command.targetSlotID!; break;
     case 'RecordExpiredScan':

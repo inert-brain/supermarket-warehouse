@@ -26,6 +26,8 @@ constexpr char RACK_ROOT_CA[] = "";
 
 constexpr uint32_t RACK_SAMPLE_MS = 20u;
 constexpr uint32_t RACK_STABLE_MS = 300u;
+constexpr bool RACK_OCCUPIED_WHEN_LOW = true;  // Change only if bench testing shows inverted sensor output.
+constexpr bool RACK_VERBOSE_SYNC = true;      // Prints raw edges and occupancy request diagnostics.
 constexpr char kHost[] = "firebasedataconnect.googleapis.com";
 constexpr uint32_t kPollMs = 5000;
 constexpr uint32_t kReconnectMs = 10000;
@@ -36,7 +38,7 @@ constexpr time_t kMinimumTime = 1735689600;  // 2025-01-01, TLS sanity only.
 static_assert(RACK_SAMPLE_MS > 0 && RACK_STABLE_MS >= RACK_SAMPLE_MS,
               "Debounce interval must be at least one sample interval");
 
-// Pure sensor/reconciliation logic is shared with native tests of this file.
+// Pure sensor/report scheduling logic is shared with native tests of this file.
 namespace rack {
 constexpr size_t kSlotCount = 8;
 constexpr uint8_t kHallPins[kSlotCount] = {4, 5, 6, 7, 15, 16, 17, 18};
@@ -77,24 +79,39 @@ inline bool settled(const Sensor &s, uint32_t now, uint32_t stableMs) {
          uint32_t(now - s.candidateSince) >= stableMs;
 }
 
-enum class CloudStatus { Unassigned, Occupied, PendingDispatch, Invalid };
-enum class Action { None, TakeOffRack, ReturnProduct };
-
-inline Action decide(const Sensor &s, CloudStatus cloud, uint32_t now,
-                     uint32_t stableMs) {
-  if (!settled(s, now, stableMs)) return Action::None;
-  if (cloud == CloudStatus::Occupied && !s.stableOccupied)
-    return Action::TakeOffRack;
-  if (cloud == CloudStatus::PendingDispatch && s.stableOccupied)
-    return Action::ReturnProduct;
-  return Action::None;
+inline bool mayReport(const Sensor &before, const Sensor &current,
+                      uint32_t now, uint32_t stableMs) {
+  return before.generation == current.generation &&
+         before.stableOccupied == current.stableOccupied &&
+         settled(before, now, stableMs) && settled(current, now, stableMs);
 }
 
-inline bool mayMutate(const Sensor &beforeRead, const Sensor &current,
-                      uint32_t now, uint32_t stableMs) {
-  return beforeRead.generation == current.generation &&
-         beforeRead.stableOccupied == current.stableOccupied &&
-         settled(beforeRead, now, stableMs) && settled(current, now, stableMs);
+// Worker-owned receipts, not queued observations. Always send a fresh Sensor copy.
+struct ReportSchedule {
+  bool attempted = false;
+  bool accepted = false;
+  uint32_t acceptedGeneration = 0;
+  uint32_t lastAttempt = 0;
+};
+
+inline bool reportDue(const Sensor &s, const ReportSchedule &report, uint32_t now) {
+  if (!settled(s, now, RACK_STABLE_MS)) return false;
+  if (!report.attempted) return true;
+  const uint32_t elapsed = now - report.lastAttempt;
+  return elapsed >= kMinimumCycleMs &&
+         (!report.accepted || s.generation != report.acceptedGeneration || elapsed >= kPollMs);
+}
+
+inline void finishReport(ReportSchedule &report, const Sensor &sent,
+                         bool accepted, uint32_t now) {
+  report.attempted = true;
+  report.accepted = accepted;
+  report.lastAttempt = now;
+  if (accepted) report.acceptedGeneration = sent.generation;
+}
+
+inline void resetReports(ReportSchedule (&reports)[kSlotCount]) {
+  for (auto &report : reports) report = ReportSchedule{};
 }
 }  // namespace rack
 
@@ -108,6 +125,21 @@ inline bool mayMutate(const Sensor &beforeRead, const Sensor &current,
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
+// ESP32-S3 native USB needs USB CDC On Boot enabled. Mirror to UART0 too.
+class RackLogger : public Print {
+ public:
+  using Print::write;
+  size_t write(uint8_t value) override { return write(&value, 1); }
+  size_t write(const uint8_t *buffer, size_t size) override {
+    if (Serial) Serial.write(buffer, size);
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+    Serial0.write(buffer, size);
+#endif
+    return size;
+  }
+};
+RackLogger rackLog;
+
 rack::Sensor sensors[rack::kSlotCount];
 SemaphoreHandle_t sensorMutex = nullptr;
 TaskHandle_t cloudTask = nullptr;
@@ -120,7 +152,6 @@ rack::Sensor sensorSnapshot(size_t index) {
 }
 
 bool configurationReady() {
-
   const String ca = RACK_ROOT_CA;
   const bool ready = strlen(RACK_WIFI_SSID) && strlen(RACK_FIREBASE_API_KEY) &&
                      strlen(RACK_FIREBASE_APP_ID) && strlen(RACK_PROJECT) &&
@@ -129,22 +160,23 @@ bool configurationReady() {
                      ca.indexOf("-----BEGIN CERTIFICATE-----") >= 0 &&
                      ca.indexOf("-----END CERTIFICATE-----") >= 0;
   if (!ready)
-    Serial.println("CONFIG: set Wi-Fi, Firebase public config and a trusted PEM CA at the top of esp32.ino; no cloud requests.");
+    rackLog.println("CONFIG: set Wi-Fi, Firebase public config and a trusted PEM CA at the top of esp32.ino; no cloud requests.");
   return ready;
 }
 
-// HTTPClient connects inside POST. Guard after TLS, not merely before POST,
-// including any reconnect, without holding the sensor mutex during network I/O.
+// HTTPClient connects inside POST. Recheck after TLS without holding a sensor
+// mutex during network I/O. Changes after transmission are reported next time.
 class SnapshotTLSClient : public WiFiClientSecure {
  public:
-  SnapshotTLSClient(int index, const rack::Sensor *expected)
+  SnapshotTLSClient(size_t index, const rack::Sensor &expected)
       : index_(index), expected_(expected) {}
   using WiFiClientSecure::connect;
   int connect(const char *host, uint16_t port, int32_t timeout) override {
     const int result = WiFiClientSecure::connect(host, port, timeout);
-    if (result && expected_ &&
-        !rack::mayMutate(*expected_, sensorSnapshot(index_), millis(), RACK_STABLE_MS)) {
-      Serial.println("SYNC: sensor changed/unsettled during read or TLS; mutation discarded.");
+    if (result &&
+        !rack::mayReport(expected_, sensorSnapshot(index_), millis(), RACK_STABLE_MS)) {
+      rackLog.printf("DB: slot %u changed/unsettled during TLS; stale report cancelled.\n",
+                    unsigned(index_ + 1));
       stop();
       return 0;
     }
@@ -152,24 +184,29 @@ class SnapshotTLSClient : public WiFiClientSecure {
   }
 
  private:
-  int index_;
-  const rack::Sensor *expected_;
+  size_t index_;
+  const rack::Sensor &expected_;
 };
 
-bool connectorRequest(bool mutation, const JsonDocument &request,
-                      JsonDocument &response, int slotIndex = -1,
-                      const rack::Sensor *expected = nullptr) {
+String redacted(String message) {
+  for (const char *secret : {RACK_WIFI_SSID, RACK_WIFI_PASSWORD,
+                             RACK_FIREBASE_API_KEY, RACK_FIREBASE_APP_ID})
+    if (strlen(secret)) message.replace(secret, "[redacted]");
+  return message;
+}
+
+bool connectorRequest(const JsonDocument &request, JsonDocument &response,
+                      size_t slotIndex, const rack::Sensor &expected) {
   if (WiFi.status() != WL_CONNECTED || time(nullptr) < kMinimumTime ||
-      (mutation && (!expected || slotIndex < 0 || slotIndex >= int(rack::kSlotCount))))
+      !rack::mayReport(expected, sensorSnapshot(slotIndex), millis(), RACK_STABLE_MS))
     return false;
   String body;
   if (request.overflowed() || !serializeJson(request, body)) return false;
   const String url = String("https://") + kHost + "/v1/projects/" + RACK_PROJECT +
       "/locations/" + RACK_REGION + "/services/" + RACK_SERVICE + "/connectors/" +
-      RACK_CONNECTOR + (mutation ? ":executeMutation?key=" : ":executeQuery?key=") +
-      RACK_FIREBASE_API_KEY;
+      RACK_CONNECTOR + ":executeMutation?key=" + RACK_FIREBASE_API_KEY;
 
-  SnapshotTLSClient tls(slotIndex, mutation ? expected : nullptr);
+  SnapshotTLSClient tls(slotIndex, expected);
   tls.setCACert(RACK_ROOT_CA);
   tls.setHandshakeTimeout(5);  // Seconds; TCP and HTTP timeouts below are ms.
   HTTPClient http;
@@ -181,132 +218,106 @@ bool connectorRequest(bool mutation, const JsonDocument &request,
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-firebase-gmpid", RACK_FIREBASE_APP_ID);
 
-
   const int status = http.POST(body);
-  String payload = status >= 200 && status < 300 ? http.getString() : String();
+  String payload = status > 0 ? http.getString() : String();
   http.end();
   tls.stop();
-  if (status < 200 || status >= 300) {
-    Serial.printf("HTTPS: request failed (%d); fresh read next cycle, no blind retry.\n", status);
-    return false;
-  }
+  const char *operation = request["operationName"] | "unknown";
   const DeserializationError error = deserializeJson(response, payload);
-  if (error || response.overflowed() || !response["errors"].isNull() ||
-      !response["data"].is<JsonObject>()) {
-    Serial.println("HTTPS: invalid data/GraphQL errors; fresh read next cycle.");
+  if (status < 200 || status >= 300) {
+    rackLog.printf("DB: %s HTTP %d FAILED; update not confirmed.\n", operation, status);
+    if (status < 0)
+      rackLog.println(HTTPClient::errorToString(status));
+    if (!error && response["error"]["message"].is<const char *>())
+      rackLog.println(redacted(response["error"]["message"].as<String>()).substring(0, 300));
+    return false;
+  }
+  if (error || response.overflowed()) {
+    rackLog.printf("DB: %s invalid JSON (%s); update not confirmed.\n", operation, error.c_str());
+    return false;
+  }
+  // An empty errors array is a successful GraphQL response, not an error.
+  const JsonVariantConst errors = response["errors"];
+  if (!errors.isNull() && (!errors.is<JsonArrayConst>() || errors.size() > 0)) {
+    rackLog.printf("DB: %s GraphQL FAILED; transaction/update not confirmed.\n", operation);
+    for (JsonObjectConst entry : errors.as<JsonArrayConst>()) {
+      rackLog.println(redacted(entry["message"] | "Unspecified GraphQL error").substring(0, 300));
+    }
+    return false;
+  }
+  if (!response["error"].isNull()) {
+    rackLog.println("DB: error envelope; occupancy report not confirmed.");
+    rackLog.println(redacted(response["error"]["message"] | "Unspecified API error").substring(0, 300));
+    return false;
+  }
+  if (!response["data"].is<JsonObjectConst>()) {
+    rackLog.printf("DB: %s missing response data; update not confirmed.\n", operation);
     return false;
   }
   return true;
 }
 
-rack::CloudStatus slotStatus(JsonObjectConst slot) {
-  const JsonVariantConst product = slot["productID"];
-  const JsonVariantConst assigned = slot["assignedAt"];
-  const JsonVariantConst stock = slot["stock"];
-  if (product.isNull() && assigned.isNull() && stock.isNull())
-    return rack::CloudStatus::Unassigned;
-  if (!product.is<const char *>() || !strlen(product.as<const char *>()) ||
-      !assigned.is<const char *>() || !strlen(assigned.as<const char *>()) ||
-      !stock.is<JsonObjectConst>() || !stock["productID"].is<const char *>() ||
-      strcmp(product.as<const char *>(), stock["productID"].as<const char *>()) != 0)
-    return rack::CloudStatus::Invalid;
-  const char *status = stock["currentStatus"] | "";
-  if (!strcmp(status, "OCCUPIED")) return rack::CloudStatus::Occupied;
-  if (!strcmp(status, "PENDING_DISPATCH")) return rack::CloudStatus::PendingDispatch;
-  return rack::CloudStatus::Invalid;  // Includes EMPTY with a retained binding.
-}
-
-JsonObjectConst findSlot(const JsonDocument &menu, size_t index) {
-  for (JsonObjectConst slot : menu["data"]["slots"].as<JsonArrayConst>())
-    if (slot["slotId"].as<int>() == int(index + 1)) return slot;
-  return JsonObjectConst();
-}
-
-bool readMenu(JsonDocument &menu) {
-  JsonDocument request;
-  request["operationName"] = "GetSlotMenu";
-  request["variables"].to<JsonObject>();
-  if (!connectorRequest(false, request, menu)) return false;
-  const JsonArrayConst slots = menu["data"]["slots"].as<JsonArrayConst>();
-  bool seen[rack::kSlotCount] = {};
-  if (slots.isNull() || slots.size() != rack::kSlotCount) {
-    Serial.println("CLOUD: expected all eight slots; no writes.");
-    return false;
-  }
-  for (JsonObjectConst slot : slots) {
-    const int id = slot["slotId"] | 0;
-    if (!slot["slotId"].is<int>() || id < 1 || id > int(rack::kSlotCount) ||
-        seen[id - 1] || slotStatus(slot) == rack::CloudStatus::Invalid) {
-      Serial.println("CLOUD: invalid/duplicate slot, binding or stock status; no writes.");
-      return false;
-    }
-    seen[id - 1] = true;
-    // Fail closed on inconsistent duplicate product assignments too.
-    for (JsonObjectConst other : slots) {
-      if (other["slotId"].as<int>() != id && !slot["productID"].isNull() &&
-          slot["productID"].as<String>() == other["productID"].as<String>()) {
-        Serial.println("CLOUD: duplicate product binding; no writes.");
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-bool syncSlot(size_t index) {
-  const rack::Sensor before = sensorSnapshot(index);
-  if (!rack::settled(before, millis(), RACK_STABLE_MS)) return true;
-  JsonDocument fresh;
-  if (!readMenu(fresh)) return false;
-  const JsonObjectConst slot = findSlot(fresh, index);
-  const rack::Action action = rack::decide(before, slotStatus(slot), millis(), RACK_STABLE_MS);
-  if (action == rack::Action::None) return true;
-
-  const char *operation = action == rack::Action::TakeOffRack ? "TakeOffRack" : "ReturnProduct";
+bool reportSlot(size_t index, const rack::Sensor &before) {
+  if (RACK_VERBOSE_SYNC)
+    rackLog.printf("CHECK: slot %u GPIO %u=%s raw=%s stable=%s settled=yes.\n",
+                  unsigned(index + 1), rack::kHallPins[index],
+                  before.rawOccupied == RACK_OCCUPIED_WHEN_LOW ? "LOW" : "HIGH",
+                  before.rawOccupied ? "occupied" : "vacant",
+                  before.stableOccupied ? "occupied" : "vacant");
+  rackLog.printf("[FIREBASE SEND] %lu ms | Slot %u | %s | isOccupied=%s\n",
+                static_cast<unsigned long>(millis()), unsigned(index + 1),
+                before.stableOccupied ? "DETECTED / ON RACK" : "NOT DETECTED / OFF RACK",
+                before.stableOccupied ? "true" : "false");
   JsonDocument request, response;
-  request["operationName"] = operation;
-  request["variables"]["productID"] = slot["productID"].as<const char *>();
-  request["variables"]["sourceSlotID"] = index + 1;
-  if (!connectorRequest(true, request, response, int(index), &before)) return false;
-  const JsonObjectConst data = response["data"].as<JsonObjectConst>();
-  if (!data["stock_updateMany"].is<int>() || data["stock_updateMany"].as<int>() != 1 ||
-      !data["source"].is<int>() || data["source"].as<int>() != 1 ||
-      !data["activity_insert"]["activityId"].is<int>()) {
-    Serial.println("SYNC: unexpected mutation result; fresh read next cycle.");
+  request["operationName"] = "ReportSlotOccupancy";
+  request["variables"]["slotID"] = int(index + 1);
+  request["variables"]["occupied"] = before.stableOccupied;
+  if (!connectorRequest(request, response, index, before)) {
+    rackLog.printf("[FIREBASE FAIL] Slot %u | isOccupied=%s | update NOT CONFIRMED; will refresh latest sensor state.\n",
+                  unsigned(index + 1), before.stableOccupied ? "true" : "false");
     return false;
   }
-  Serial.printf("SYNC: slot %u %s accepted.\n", unsigned(index + 1), operation);
-  return true;
-}
-
-void reconcile() {
-  JsonDocument menu;
-  if (!readMenu(menu)) return;
-  for (size_t i = 0; i < rack::kSlotCount; ++i) {
-    const rack::Sensor sensor = sensorSnapshot(i);
-    const rack::CloudStatus status = slotStatus(findSlot(menu, i));
-    if (!rack::settled(sensor, millis(), RACK_STABLE_MS)) continue;
-    if (status == rack::CloudStatus::Unassigned && sensor.stableOccupied)
-      Serial.printf("SYNC: slot %u occupied, unidentified; no write.\n", unsigned(i + 1));
-    if (rack::decide(sensor, status, millis(), RACK_STABLE_MS) != rack::Action::None &&
-        !syncSlot(i)) return;  // Stop this cycle on uncertainty; never replay a POST.
+  // Confirm the deployed ReportSlotOccupancy operation saved this slot's reading.
+  const JsonVariantConst observation = response["data"]["observation"];
+  const JsonVariantConst slot = response["data"]["query"]["slot"];
+  if (!observation.is<int>() || observation.as<int>() != 1 ||
+      !slot.is<JsonObjectConst>() || !slot["slotId"].is<int>() ||
+      slot["slotId"].as<int>() != int(index + 1) || !slot["isOccupied"].is<bool>() ||
+      slot["isOccupied"].as<bool>() != before.stableOccupied ||
+      !slot["occupancyUpdatedAt"].is<const char *>()) {
+    rackLog.printf("[FIREBASE FAIL] Slot %u | response does not confirm the requested update.\n",
+                  unsigned(index + 1));
+    return false;
   }
+  rackLog.printf("[FIREBASE OK] DB UPDATED: slot %u isOccupied=%s (%s); confirmed by Firebase response.\n",
+                unsigned(index + 1), before.stableOccupied ? "true" : "false",
+                before.stableOccupied ? "ON RACK" : "OFF RACK");
+  if (!slot.isNull()) {
+    const String interpretation = redacted(String("product=") + (slot["productID"] | "unassigned") +
+        " status=" + (slot["stock"]["currentStatus"] | "unassigned/unknown") +
+        " occupancyUpdatedAt=" + (slot["occupancyUpdatedAt"] | "not returned"));
+    rackLog.printf("DB: slot %u cloud-reported %s\n", unsigned(index + 1), interpretation.c_str());
+  }
+  // No product lookup or dispatch request is made by the rack. The phone confirms departure.
+  return true;
 }
 
 void cloudWorker(void *) {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   uint32_t lastReconnect = millis() - kReconnectMs;
-  uint32_t lastCycle = 0, lastClockLog = millis() - kReconnectMs;
-  bool connected = false, ranCycle = false, dirty = true;
+  uint32_t lastClockLog = millis() - kReconnectMs;
+  bool connected = false;
+  rack::ReportSchedule reports[rack::kSlotCount];
+  size_t nextSlot = 0;
   for (;;) {
     if (WiFi.status() != WL_CONNECTED) {
-      if (connected) Serial.println("Wi-Fi lost; sampling continues.");
+      if (connected) rackLog.println("Wi-Fi lost; sampling continues.");
       connected = false;
-      ranCycle = false;
+
       if (uint32_t(millis() - lastReconnect) >= kReconnectMs) {
         lastReconnect = millis();
-        Serial.println("Wi-Fi: connecting/reconnecting...");
+        rackLog.println("Wi-Fi: connecting/reconnecting...");
         WiFi.begin(RACK_WIFI_SSID, RACK_WIFI_PASSWORD);
       }
       vTaskDelay(pdMS_TO_TICKS(100));
@@ -314,58 +325,93 @@ void cloudWorker(void *) {
     }
     if (!connected) {
       connected = true;
-      dirty = true;
-      Serial.println("Wi-Fi connected; syncing UTC clock for verified TLS.");
+      rack::resetReports(reports);
+      rackLog.println("Wi-Fi connected; report all current stable slots after UTC clock sync for TLS.");
       configTime(0, 0, "time.google.com", "pool.ntp.org");
     }
     if (time(nullptr) < kMinimumTime) {
       if (uint32_t(millis() - lastClockLog) >= kReconnectMs) {
         lastClockLog = millis();
-        Serial.println("CLOCK: waiting for NTP; no HTTPS until clock is plausible.");
+        rackLog.println("CLOCK: waiting for NTP; no HTTPS until clock is plausible.");
       }
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
-    dirty = (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100)) > 0) || dirty;
-    const uint32_t elapsed = millis() - lastCycle;
-    if (!ranCycle || ((dirty || elapsed >= kPollMs) && elapsed >= kMinimumCycleMs)) {
-      dirty = false;
-      reconcile();
-      lastCycle = millis();
-      ranCycle = true;
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(100));
+    // Round-robin due slots so a failed/noisy slot cannot starve the other seven.
+    for (size_t offset = 0; offset < rack::kSlotCount; ++offset) {
+      const size_t index = (nextSlot + offset) % rack::kSlotCount;
+      const rack::Sensor before = sensorSnapshot(index);
+      if (!rack::reportDue(before, reports[index], millis())) continue;
+      const bool accepted = reportSlot(index, before);
+      rack::finishReport(reports[index], before, accepted, millis());
+      nextSlot = (index + 1) % rack::kSlotCount;
+      break;
     }
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Rack MVP: LOW=occupied, startup reconciliation only; never receipt/dispatch.");
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+  Serial0.begin(115200);
+#endif
+  rackLog.println("[BOOT] Rack S3 logging v2 — heartbeat every 2 seconds; monitor at 115200 baud.");
+  rackLog.printf("Rack MVP: %s=occupied; report occupancy only; cloud resolves assignment/status/activity.\n",
+                RACK_OCCUPIED_WHEN_LOW ? "LOW" : "HIGH");
+  rackLog.println("Slot 3 Hall input is GPIO 6. Serial Monitor: 115200 baud.");
   for (uint8_t pin : rack::kHallPins) pinMode(pin, INPUT_PULLUP);
   sensorMutex = xSemaphoreCreateMutex();
   if (!sensorMutex) {
-    Serial.println("FATAL: sensor mutex allocation failed; cloud disabled.");
+    rackLog.println("FATAL: sensor mutex allocation failed; cloud disabled.");
     return;
   }
   if (!configurationReady()) return;
   if (xTaskCreate(cloudWorker, "rack-cloud", 12288, nullptr, 1, &cloudTask) != pdPASS) {
     cloudTask = nullptr;
-    Serial.println("ERROR: cloud task allocation failed; Hall diagnostics only.");
+    rackLog.println("ERROR: cloud task allocation failed; Hall diagnostics only.");
   }
 }
 
 void loop() {
   static uint32_t lastSample = millis() - RACK_SAMPLE_MS;
   const uint32_t now = millis();
+  static uint32_t lastHeartbeat = millis() - 2000u;
+  if (uint32_t(now - lastHeartbeat) >= 2000u) {
+    lastHeartbeat = now;
+    rackLog.printf("[ALIVE] uptime=%lu ms | WiFi=%s | cloud worker=%s\n",
+                   static_cast<unsigned long>(now),
+                   WiFi.status() == WL_CONNECTED ? "connected" : "disconnected",
+                   cloudTask ? "running" : "disabled (check settings)");
+    rackLog.print("[HALL SNAPSHOT] ");
+    for (size_t i = 0; i < rack::kSlotCount; ++i) {
+      const bool low = digitalRead(rack::kHallPins[i]) == LOW;
+      rackLog.printf("S%u(GPIO%u)=%s/%s ", unsigned(i + 1), rack::kHallPins[i],
+                     low ? "LOW" : "HIGH",
+                     low == RACK_OCCUPIED_WHEN_LOW ? "detected" : "not-detected");
+    }
+    rackLog.println();
+  }
   if (sensorMutex && uint32_t(now - lastSample) >= RACK_SAMPLE_MS) {
     lastSample = now;
     for (size_t i = 0; i < rack::kSlotCount; ++i) {
-      const bool occupied = digitalRead(rack::kHallPins[i]) == LOW;
+      const bool occupied = (digitalRead(rack::kHallPins[i]) == LOW) == RACK_OCCUPIED_WHEN_LOW;
       xSemaphoreTake(sensorMutex, portMAX_DELAY);
+      const bool rawChanged = !sensors[i].initialized || sensors[i].rawOccupied != occupied;
       const bool changed = rack::sample(sensors[i], occupied, now, RACK_STABLE_MS);
+      const rack::Sensor current = sensors[i];
       xSemaphoreGive(sensorMutex);
+      if (rawChanged && RACK_VERBOSE_SYNC)
+        rackLog.printf("[HALL RAW] %lu ms | Slot %u GPIO %u=%s candidate=%s stable=%s\n",
+                      static_cast<unsigned long>(now), unsigned(i + 1), rack::kHallPins[i],
+                      occupied == RACK_OCCUPIED_WHEN_LOW ? "LOW" : "HIGH",
+                      occupied ? "occupied" : "vacant",
+                      current.baselineReady ? (current.stableOccupied ? "occupied" : "vacant") : "unknown");
       if (changed) {
-        Serial.printf("HALL: slot %u GPIO %u stable %s.\n", unsigned(i + 1),
-                      rack::kHallPins[i], occupied ? "occupied" : "vacant");
+        rackLog.printf("[HALL UPDATE] %lu ms | Slot %u GPIO %u | %s | stable for %lu ms\n",
+                      static_cast<unsigned long>(now), unsigned(i + 1), rack::kHallPins[i],
+                      occupied ? "DETECTED / ON RACK" : "NOT DETECTED / OFF RACK",
+                      static_cast<unsigned long>(RACK_STABLE_MS));
         if (cloudTask) xTaskNotifyGive(cloudTask);
       }
     }

@@ -1,8 +1,20 @@
-# Eight-slot rack MVP
+# Eight-slot occupancy reporter
 
-Arduino ESP32-S3 firmware; no UNO, LCD, LEDs, buttons, Firebase deployment, or UI changes.
-`plan.md` describes the intended behavior; this implementation deliberately reuses
-**GetSlotMenu**, not the plan's proposed new GetRackSlot query.
+Single-file Arduino ESP32-S3 firmware implementing the ESP32 portion of `plan.md`.
+The rack reports physical occupancy directly to Firebase Data Connect; the cloud
+resolves assignments, product status, and activities. Firmware does not query
+products, choose product transitions, receive, dispatch, clear bindings, or decide
+expiry. No laptop service, Firebase Arduino library, UNO, LCD, LEDs, or buttons are
+required. This firmware change does not deploy the cloud or update the phone/dashboard.
+
+## No serial logs on ESP32-S3?
+
+The sketch prints `[ALIVE]` and all eight raw Hall readings every two seconds, even without working Wi-Fi/Firebase settings. With USB CDC enabled, logs also mirror to UART0.
+
+- Native USB port: select the correct S3 board and enable **Tools → USB CDC On Boot → Enabled** if that setting is available, then upload again. Keep the board's supported USB mode selected.
+- USB-to-UART port: select its serial port and use **115200 baud**. Some S3 boards have separate USB and UART connectors; the selected port must match the connected one.
+- After upload, reselect the serial port if it changes, open Serial Monitor, and press RESET/EN once.
+- If no `[ALIVE]` appears, check the board/port/upload/USB settings and data-capable cable first. Firebase cannot suppress the heartbeat.
 
 ## Wiring and board
 
@@ -10,138 +22,153 @@ Arduino ESP32-S3 firmware; no UNO, LCD, LEDs, buttons, Firebase deployment, or U
 |---|---|---|---|---|---|---|---|---|
 | GPIO | 4 | 5 | 6 | 7 | 15 | 16 | 17 | 18 |
 
-All inputs use `INPUT_PULLUP`: **LOW = occupied**, HIGH = vacant. See
-`component_connections.md` for power, pin order, and USB/external-power precautions.
-**ESP32-S3 is the confirmed target.** The exact board/module variant is still
-unknown: verify its exposed pins, flash/PSRAM size, and upload/USB settings rather
-than assuming generic defaults are correct.
-Bench-test every Hall module at 3.3 V; some KY-003/A3144 modules are unreliable at
-that voltage. Never connect a 5 V signal directly to an S3 GPIO.
+Inputs use `INPUT_PULLUP`: **LOW = occupied**, HIGH = vacant. Set
+`RACK_OCCUPIED_WHEN_LOW = false` only if bench testing confirms inverted output.
+See `component_connections.md` for power, pin order, and USB/external-power precautions;
+its additional peripherals are not used by this sketch.
+
+**ESP32-S3 is the target.** Verify the actual board's exposed pins, flash/PSRAM,
+and upload/USB settings before flashing. Bench-test every Hall module at 3.3 V;
+some KY-003/A3144 modules are unreliable at that voltage. Never connect a 5 V
+signal directly to an S3 GPIO. Avoid simultaneous external 5 V and USB power
+unless the board supports it safely.
 
 ## Setup
 
-1. Install Espressif's **esp32** Arduino board package and **ArduinoJson 7** via
-   Boards/Library Manager. WiFi, WiFiClientSecure, HTTPClient, and FreeRTOS come
-   with the ESP32 core; no Firebase Arduino library is needed.
-2. Open **`esp32.ino`** or paste its entire contents into a single Arduino sketch
-   tab. It is self-contained: no project headers or extra sketch tabs are needed.
-   Edit the `constexpr` settings at the top: `RACK_WIFI_SSID`, `RACK_WIFI_PASSWORD`,
-   `RACK_FIREBASE_API_KEY`, and `RACK_FIREBASE_APP_ID`, using the intended isolated
-   Firebase client configuration. Check `RACK_PROJECT`, `RACK_REGION`, `RACK_SERVICE`,
-   and `RACK_CONNECTOR`. Never use service-account keys, SQL credentials, or private
-   signing keys. Keep real Wi-Fi credentials out of Git and shared sketch copies.
-   An existing local `config.h` is no longer read; manually transfer its values
-   into the sketch. It remains ignored by Git and does not need to be deleted.
-3. Set `RACK_ROOT_CA` to an actual trusted root PEM (multiple concatenated PEMs
-   are supported). Obtain Google Trust Services roots from the official HTTPS
-   repository, <https://pki.goog/repository/>. Check the current
-   `firebasedataconnect.googleapis.com` chain and the root's fingerprint/validity
-   against that repository. Use the issuing root(s), **not a short-lived leaf**.
-   Replace the empty `RACK_ROOT_CA` string at the top of the sketch using the
-   raw-string syntax illustrated there. Check a downloaded CA file from your
-   workstation, for example:
+1. Install Espressif's **esp32** board package and **ArduinoJson 7**. WiFi,
+   WiFiClientSecure, HTTPClient, and FreeRTOS come with the ESP32 core.
+2. Open `esp32.ino`, or copy its complete contents into one Arduino sketch tab.
+   Edit settings at the top: `RACK_WIFI_SSID`, `RACK_WIFI_PASSWORD`,
+   `RACK_FIREBASE_API_KEY`, `RACK_FIREBASE_APP_ID`, `RACK_PROJECT`, `RACK_REGION`,
+   `RACK_SERVICE`, and `RACK_CONNECTOR`. Preserve your existing local values.
+   Never use service-account/SQL credentials or private signing keys. Keep real
+   Wi-Fi credentials out of Git and shared sketch copies. An existing ignored
+   `config.h` is not read; do not delete it or overwrite credentials unnecessarily.
+3. Set `RACK_ROOT_CA` to trusted root PEM(s) from the official Google Trust
+   Services repository, <https://pki.goog/repository/>. Verify the current
+   `firebasedataconnect.googleapis.com` chain, root fingerprints, and validity;
+   use roots, not a short-lived leaf. Multiple concatenated PEMs are supported.
+   Preserve an existing correct CA and maintain it as chains rotate. Example
+   workstation check:
    ```sh
    openssl s_client -connect firebasedataconnect.googleapis.com:443 \
      -servername firebasedataconnect.googleapis.com \
      -CAfile roots.pem -verify_hostname firebasedataconnect.googleapis.com \
      -verify_return_error </dev/null
    ```
-   Keep the trust roots maintained as chains rotate. Firmware uses `setCACert`,
-   normal hostname verification, finite timeouts, and no insecure fallback.
-4. Adjust timing in the same top settings block if needed: `RACK_SAMPLE_MS`
-   (20 ms), `RACK_STABLE_MS` (300 ms), `kPollMs` (5000 ms), `kReconnectMs`
-   (10000 ms), and `kMinimumCycleMs` (1000 ms). `kMinimumTime` is the TLS clock
-   sanity threshold (Unix seconds), not inventory expiry logic.
-   Select the actual S3 board and its settings, build/upload, and open Serial
-   Monitor at **115200**. There is no wait for Serial at startup. With empty
-   required settings/PEM, it still compiles and samples Hall inputs, but prints
-   an explicit configuration diagnostic and disables cloud work.
-5. Wi-Fi must reach HTTPS and NTP (`time.google.com` / `pool.ntp.org`). Firmware
-   waits for a plausible UTC clock before TLS. No timezone/expiry logic is used.
-   Confirm the deployed connector permits the public predefined-operation REST
-   calls and API-key/app restrictions permit this client. Future Auth/App Check
-   requirements would need additional implementation. No cloud credentials or
-   inventory data are bundled here; no live requests were made during validation.
+   Firmware uses `setCACert`, hostname verification, finite network timeouts,
+   no redirects, and no insecure fallback.
+4. Default timing: `RACK_SAMPLE_MS = 20`, `RACK_STABLE_MS = 300`, `kPollMs = 5000`
+   (per-slot heartbeat after the last completed attempt), `kReconnectMs = 10000`
+   (Wi-Fi retry), and `kMinimumCycleMs = 1000` (per-slot edge/failure retry floor).
+   `kMinimumTime` is only a TLS clock sanity threshold, not expiry logic.
+5. Select the actual S3 board/settings, upload, and open Serial Monitor at
+   **115200**. Empty required settings/PEM disable cloud work, not Hall sampling.
+   Wi-Fi must reach HTTPS and NTP (`time.google.com` / `pool.ntp.org`). HTTPS
+   waits for a plausible UTC clock. No timezone/expiry service is used.
+6. The deployed connector must provide `ReportSlotOccupancy`, permit this
+   prototype's public REST calls, and allow this API key/app configuration.
+   Auth/App Check requirements would need additional firmware. This task does
+   not deploy anything or prove which connector version is live.
 
-Optional CLI build, once dependencies and the CLI are installed:
+Compile from the repository root with installed dependencies:
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32s3 esp32
 ```
 
-Run from the repository root. This FQBN selects the generic **ESP32-S3 Dev Module**,
-not the original ESP32 or another ESP32 family. It is a compile smoke target;
-record the actual S3 board/settings before flashing.
+This generic **ESP32-S3 Dev Module** target is a smoke build, not confirmation of
+the physical board settings. A standalone check can compile a copy containing
+only `esp32.ino` inside a directory named `esp32`; no project headers are required.
 
-## Behavior and safety boundary
+## Reporting and safety boundary
 
-- `loop()` samples every 20 ms with independent 300 ms debounce. Both intervals
-  are configurable. Even a bounce **back to the old stable value** must settle
-  again before any mutation. Stable GPIO diagnostics work without Wi-Fi.
-- A FreeRTOS worker does all Wi-Fi/HTTP work. Short mutex-protected sensor copies
-  keep network waits out of sampling. Notifications are coalesced; there is no
-  unbounded event queue, saved product identity, NVS journal, or POST retry queue.
-- Reconcile at boot, on Wi-Fi reconnect, after accepted sensor changes, and about
-  five seconds after each completed cycle. Change-triggered cycles are limited
-  to at most one per second. Wi-Fi reconnect attempts are spaced ten seconds apart.
-- POST `GetSlotMenu` to `:executeQuery` for discovery, then **reread it immediately
-  before each proposed mutation**. Validate all eight unique slot IDs, binding
-  timestamps, joined product identity/status, and duplicate product bindings.
-  Invalid/partial cloud data blocks writes. HTTP success alone is insufficient:
-  JSON, GraphQL errors, and expected mutation result fields are checked.
-- The pre-read sensor generation is checked again **after TLS connects inside
-  HTTPClient's POST**, just before request transmission. Any observed candidate
-  change (even one that returns to the same value) cancels that work. Sensor
-  mutexes are never held across a network call.
-- Only bound **OCCUPIED + settled vacant → TakeOffRack** and bound
-  **PENDING_DISPATCH + settled occupied → ReturnProduct** are sent, with only
-  `productID` and `sourceSlotID` variables. Unassigned/no-op states never write;
-  occupied/unassigned logs an unidentified-object warning. Startup is a baseline,
-  not a receipt. Firmware never dispatches, receives, clears bindings, or decides expiry.
-- Any timeout, rejection, invalid reply, or canceled generation stops that cycle.
-  Next cycle starts with fresh cloud reads; there is **no blind mutation retry**.
-  A lost response after commit normally resolves to a no-op on the next read.
+- `loop()` samples independently of networking, with 300 ms debounce per slot.
+  Startup is unknown until the first stable reading. Even a bounce back to the
+  old stable value must settle again before reporting.
+- A FreeRTOS worker performs all Wi-Fi/HTTPS work. Sensor mutexes only protect
+  short copies/updates, never network waits. Serial logs show raw edges, stable
+  states, the slot/boolean sent, request outcomes, and returned cloud metadata.
+  `RACK_VERBOSE_SYNC` controls raw-edge/request diagnostics; stable/outcome logs
+  remain available. Known configured credentials are redacted from response logs.
+- All eight slots report their first stable value, subsequent stable changes,
+  unchanged heartbeats about every five seconds, and current stable values on
+  Wi-Fi reconnect. Unassigned slots report too; no product lookup is required.
+- Scheduling retains eight sensor states and eight small report receipts, not
+  an offline edge/event queue. Notifications only wake the worker. Offline
+  intermediate movements are intentionally discarded. Each attempt builds a
+  fresh request from the latest settled sensor copy.
+- Due slots are visited round-robin, so failures/noise in one slot do not block
+  the others indefinitely. A generation check after the TLS handshake cancels
+  stale work before transmission. If occupancy changes during POST, only the
+  sent generation is acknowledged; the newest settled reading remains due for
+  the next attempt, subject to the retry floor and other due slots.
+- Requests are sequential. Five seconds is a target, not a guarantee for eight
+  slow HTTPS requests. Measure all eight observation ages against the plan's
+  initial 30-second freshness threshold before relying on it for a demo.
+- A lost response may already have committed. The next report sends current
+  occupancy again, never a product event. **Cloud idempotency is required:**
+  every accepted report refreshes the server observation timestamp, but repeated
+  same-state reports must not duplicate product transitions or activities.
 
-**Prototype limitations:** presence cannot identify a replacement object; staff
-must ensure the existing binding actually identifies the object. Offline intermediate
-movements are not reconstructed. Generation checks cannot prevent a physical
-change after the final check or while a request is in flight. Existing server
-transactions recheck product/status/source binding, but do not compare an expected
-`assignedAt`: same-product unbind/rebind races and repeated status cycles remain
-possible. This is best-effort state reconciliation, not exactly-once delivery or
-an atomic hardware/cloud/phone dispatch interlock. PUBLIC connector operations
-are not an authorization boundary; use an isolated, controlled prototype.
+Presence cannot identify a product: staff must put the scanned item in its
+assigned slot. No exactly-once delivery or atomic physical dispatch interlock is
+claimed. PUBLIC operations are not an authorization boundary; use an isolated,
+controlled school prototype.
 
-## Using it with the phone
+## REST request and response contract
 
-Seed all eight slots and deploy the existing `GetSlotMenu`, `TakeOffRack`, and `ReturnProduct` operations before testing. No additional connector query or schema change is needed. Assign the correct product to a slot using the phone, with the real object already resting on its sensor; the current app treats assignment as completed placement, so a still-vacant assigned slot will correctly be reconciled as off-rack. A future receiving handshake can separate reservation from actual placement.
+POST directly to:
 
-Lift the product: the firmware writes PENDING_DISPATCH/OFF_RACK while keeping its binding. Return it: the firmware restores OCCUPIED/ON_RACK. Refresh the phone to see the result; confirm external dispatch only in the phone. Avoid using the app's manual Take off rack action as the normal hardware trigger, since a sensor that still reports occupied will reconcile that manual change back to on-rack. After setup/flashing, no laptop process is required.
+```text
+https://firebasedataconnect.googleapis.com/v1/projects/<project>/locations/<region>/services/<service>/connectors/<connector>:executeMutation?key=<public-api-key>
+```
+
+Headers: `Content-Type: application/json`, `x-firebase-gmpid: <app-id>`.
+The request has exactly these operation variables (example):
+
+```json
+{
+  "operationName": "ReportSlotOccupancy",
+  "variables": { "slotID": 1, "occupied": true }
+}
+```
+
+No product ID, activity type, timestamp, or next status is sent. There are no
+query/read-back requests or alternative product mutations.
+
+Response assumptions:
+
+- Acceptance requires HTTP 2xx, valid JSON, an object `data`, no API `error`,
+  and absent/empty GraphQL `errors`. Partial data with errors is a failure.
+- Requires `data.observation = 1` and `data.query.slot` with matching slotId/isOccupied and an occupancyUpdatedAt string, as returned by the current connector. Deploy that connector before flashing this sketch.
+- Prints `DB UPDATED: slot N isOccupied=false (OFF RACK); confirmed by Firebase response.` or the corresponding true/ON RACK line only after those checks pass. This confirms the mutation response, not a separate read-back.
+- Logs the returned assigned product, stock status, and timestamp. No activity ID is required for a heartbeat/no-op. Missing/mismatched response fields or HTTP/GraphQL errors trigger a later report of the latest sensor state.
+- Detected means true/on-rack; not detected means false/off-rack. Unknown/null is an app-side demo fallback before a successful report; firmware always sends a boolean. Dispatch remains phone-confirmed.
+
+The coordinated cloud must implement the transition/no-op rules in `plan.md`.
+The phone assigns vacant slots and explicitly confirms dispatch; physical placement,
+lift, and return are interpreted by the cloud from occupancy reports. Refresh the
+phone and use dashboard Sync as appropriate; firmware does not update UI directly.
 
 ## Validation
 
-Native tests, from the repository root (no Arduino dependencies):
+Native tests include the **same sketch**, excluding Arduino-specific code:
 
 ```sh
 g++ -std=c++11 -Wall -Wextra -Werror -pedantic \
   esp32/tests/rack_logic_test.cpp -o /tmp/rack_logic_test && /tmp/rack_logic_test
 ```
 
-Tests cover startup, the full decision table, unsettled candidates/bounce-back,
-repeated readings, generation changes during network gaps, lost-response state
-reconciliation, simultaneous slots, pin mapping, and `millis()` wraparound.
-The tests define `RACK_LOGIC_TEST` and include `../esp32.ino` directly, excluding
-only Arduino-specific code. There is no separate helper implementation to drift
-from the firmware. They do not test live HTTP/server transactions or FreeRTOS timing.
+Coverage: stable startup for both readings, repeated heartbeats, bounce/unsettled
+suppression, generation guards across TLS waits, changes during slow requests,
+failed/lost-response retries using latest state, all eight pins/independent slots,
+reconnect without offline replay, and `millis()` wraparound. These tests do not
+validate HTTP/JSON parsing, FreeRTOS timing, server transactions, or activity
+idempotency. Those require a board/isolated cloud integration test.
 
-For a single-file build check, copy only `esp32.ino` into a new directory named
-`esp32` outside the project and compile that directory with the same FQBN and
-installed dependencies. No `config.h` or `rack_logic.h` should be present. Empty
-settings are intentional: cloud configuration is checked at runtime, so the full
-cloud path still compiles without real credentials.
-
-Still required on hardware/isolated cloud: all eight polarity/voltage checks,
-startup/no duplicate receipt, removal/return and retained binding/history, short
-bumps and return during a slow read/handshake, two simultaneous removals, Wi-Fi
-loss while sampling, a lost mutation response, and a phone binding/dispatch change.
-No deployed REST, certificate-chain, physical-board, or end-to-end test is claimed.
+Before the demo, check every sensor's polarity/voltage, startup without duplicate
+receipts, first placement, lift/return with retained assignment, unassigned
+occupancy, unchanged heartbeat timestamps without new events, simultaneous slots,
+slow requests, Wi-Fi loss/reconnect, and a lost response. No live endpoint,
+certificate-chain, physical-board, or end-to-end validation is claimed here.

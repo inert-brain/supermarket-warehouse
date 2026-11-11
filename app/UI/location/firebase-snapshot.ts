@@ -18,7 +18,9 @@ export function mapLocationSnapshot(data: unknown, productID: string, today: str
     if (!object(item)) return bad();
     const joined = item.stock;
     if (item.productID === null ? joined !== null : !object(joined) || joined.productID !== item.productID) return bad();
-    return { slotId: item.slotId, productID: item.productID, assignedAt: item.assignedAt, status: object(joined) ? joined.currentStatus : null };
+    return { slotId: item.slotId, productID: item.productID, assignedAt: item.assignedAt,
+          isOccupied: item.isOccupied, occupancyUpdatedAt: item.occupancyUpdatedAt,
+          status: object(joined) ? joined.currentStatus : null };
   });
   const bindings = data.productBindings;
   if (bindings.some((item: unknown) => !object(item) || item.productID !== productID || !Number.isInteger(item.slotId) || (item.slotId as number) < 1 || (item.slotId as number) > 8)) return bad();

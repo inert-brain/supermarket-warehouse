@@ -1,4 +1,4 @@
-import { validateSnapshot, type Command, type Snapshot } from './core.ts';
+import { makeCommand, validateSnapshot, type Command, type Snapshot } from './core.ts';
 
 export type Outcome = { status: 'committed'; message: string };
 export interface LocationTransport {
@@ -12,7 +12,7 @@ export interface LocationAdapter {
   submit(command: Command): Promise<Outcome>;
 }
 
-const actions = ['PlaceProduct', 'TakeOffRack', 'ReturnProduct', 'MoveProduct', 'DispatchProduct', 'RecordExpiredScan'];
+const actions = ['AssignProductToSlot', 'ChangeAssignedSlot', 'DispatchProduct', 'RecordExpiredScan'];
 const object = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 export function commandValue(value: unknown): Command {
   const bad = (): never => { throw new Error('Invalid location command. Refresh inventory before continuing.'); };
@@ -21,11 +21,22 @@ export function commandValue(value: unknown): Command {
   const slot = (x: unknown) => x === null || (typeof x === 'number' && Number.isInteger(x) && x >= 1 && x <= 8);
   if (!slot(value.sourceSlotID) || !slot(value.targetSlotID)) return bad();
   const source = value.sourceSlotID !== null, target = value.targetSlotID !== null;
-  if ((value.action === 'PlaceProduct' && (source || !target)) ||
-      (value.action === 'MoveProduct' && (!source || !target || value.sourceSlotID === value.targetSlotID)) ||
-      (['TakeOffRack', 'ReturnProduct', 'DispatchProduct'].includes(value.action) && (!source || target)) ||
+  if ((value.action === 'AssignProductToSlot' && (source || !target)) ||
+      (value.action === 'ChangeAssignedSlot' && (!source || !target || value.sourceSlotID === value.targetSlotID)) ||
+      (value.action === 'DispatchProduct' && (!source || target)) ||
       (value.action === 'RecordExpiredScan' && target)) return bad();
   return value as Command;
+}
+
+/** Recheck eligibility and the exact intended binding immediately before confirmation/submission. */
+export async function refreshCommand(adapter: LocationAdapter, expected: Command, signal: AbortSignal): Promise<Snapshot> {
+  const snapshot = await adapter.read(expected.productID, signal);
+  if (!snapshot) throw new Error('Product not found. No command was sent.');
+  const latest = makeCommand(snapshot, expected.action, expected.targetSlotID ?? undefined);
+  if (latest.sourceSlotID !== expected.sourceSlotID || latest.targetSlotID !== expected.targetSlotID) {
+    throw new Error('The assignment changed. Review the latest slots and confirm again. No command was sent.');
+  }
+  return snapshot;
 }
 
 export function createLocationAdapter(transport: LocationTransport, timeoutMs = 15000): LocationAdapter {
@@ -61,7 +72,8 @@ export function createLocationAdapter(transport: LocationTransport, timeoutMs = 
       try {
         // A timeout stops waiting, not the hosted transaction. Never resend automatically.
         await call(() => transport.executeCommand(command));
-        return { status: 'committed', message: command.action === 'RecordExpiredScan' ? 'Expired scan recorded.' : 'Inventory updated.' };
+        return { status: 'committed', message: command.action === 'RecordExpiredScan' ? 'Expired scan recorded. Inventory and slot state unchanged.' :
+                  command.action === 'DispatchProduct' ? 'External dispatch recorded.' : `Assignment saved. Put the product in Slot ${command.targetSlotID}. Stock changes only when the rack detects the product.` };
       } finally { submitting = false; }
     },
   };

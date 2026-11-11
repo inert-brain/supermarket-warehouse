@@ -56,8 +56,17 @@ only `dashboard/`, and does not compile, deploy, or migrate Firebase resources.
 | operationName | response array (`data`) | ascending key / nullable `after` type | fields |
 | --- | --- | --- | --- |
 | `DashboardStocks` | `stocks` | `productID` / `String` | productID, currentStatus, statusUpdatedAt, description, expiresOn |
-| `DashboardSlots` | `slots` | `slotId` / `Int` | slotId, productID, assignedAt |
+| `DashboardSlots` | `slots` | `slotId` / `Int` | slotId, productID, assignedAt, isOccupied, occupancyUpdatedAt |
 | `DashboardActivities` | `activities` | `activityId` / `Int` | activityId, productID, occurredAt, activityType |
+
+**Coordinated cloud deployment prerequisite:** `Slot.isOccupied: Boolean` and
+`Slot.occupancyUpdatedAt: Timestamp` must be added as nullable fields and selected
+by the deployed `DashboardSlots` query. Both JSON properties are **required**, even
+when their values are null. Missing properties (including an old connector
+response) fail Sync and preserve the previous complete snapshot. `isOccupied`
+accepts only a JSON boolean or null, not strings or integers; non-null observation
+timestamps must be timezone-aware. Do not initialize unreported slots to vacant.
+No Firebase schema/query files are changed or deployed by this dashboard update.
 
 All operations declare `$limit: Int!`, with **no default**. The client always sends
 `{"after": null, "limit": 100}` on the first page, then the last key as `after`.
@@ -110,17 +119,55 @@ or malformed page is an error, not an empty database. Timeouts are finite
   changes can be missed or produce quality warnings until the next manual Sync.
 - Warehouse units = OCCUPIED + PENDING_DISPATCH. EMPTY is **not** synonymous with
   dispatched. Pending dispatch keeps its slot reserved. Expired stock still counts.
-- Unassigned slots count only existing IDs 1–8 with both productID and assignedAt
-  null. Missing/inconsistent cards are Unknown, never assumed available. Tables
-  retain all unique returned records, including out-of-range/invalid bindings;
-  data-quality warnings do not repair or hide them.
+- **Available slots (demo, at sync)** counts unique existing IDs 1–8 with
+  `productID=null` and `isOccupied` **not true** (`false` or `null`). There is **no
+  freshness requirement**: old, missing, or future observation timestamps do not
+  gate demo availability. Unknown occupancy does **not** prove physical vacancy;
+  accepting it is an explicit MVP simplification, not a real-time vacancy claim.
+  Known occupied slots remain unavailable regardless of timestamp, and every
+  assigned slot stays reserved regardless of sensor value or stock status.
+  Missing/duplicate slot rows are unknown and never counted as available; no
+  records are invented. A leftover `assignedAt` on an unassigned slot produces a
+  quality warning but does not change the demo rule. Tables retain all returned
+  records; warnings never repair or hide them.
+- Slot cards show the saved sensor boolean, occupancyUpdatedAt (also in the Slots
+  table), observation age at sync completion, assignment ID, and derived state.
+  These states do not depend on observation age:
+
+  | Saved sensor occupancy | Assignment / stock status | Display |
+  | --- | --- | --- |
+  | False or unknown | Unassigned | Available (demo); sensor still displayed as Vacant or Unknown |
+  | False | Assigned EMPTY | Awaiting placement (reserved, no stock increase, not a quality error) |
+  | True | Assigned OCCUPIED | Occupied |
+  | False | Assigned PENDING_DISPATCH | Off-rack / reserved (still warehouse stock) |
+  | True | Unassigned | Occupied / unidentified (no product or stock invented) |
+  | Unknown | Assigned | Occupancy unknown / reserved |
+
+  Conflicting known sensor/product combinations remain reserved and produce a
+  Sync-again quality warning, even when old or undated, not a fabricated repair or
+  inventory adjustment. Stock totals are unchanged and based on saved stock
+  status; **On rack (stock status)** is not a count of confirmed current presence.
+- **Display-only observation age:** cards measure timestamp age against snapshot
+  `completed_at`, including timezone offsets. Missing timestamps are labeled
+  **Unknown observation time** (not assumed never reported); future timestamps
+  show **Future timestamp / age unknown**. A known timestamp does not turn null
+  occupancy into vacancy. `assignedAt` is binding time, never sensor time. There
+  is no occupancy freshness threshold or freshness control.
+- These are explicitly **at-sync, not live** labels. Snapshot age uses the
+  computer's current UTC time on each ordinary render, while observation ages
+  remain frozen at sync completion. The reporting copy always warns that data
+  may be stale. No timer, polling, automatic rerender, or automatic cloud request
+  is installed: a page left idle cannot update its displayed snapshot age until
+  the next interaction. Last-success time and observation timestamps remain
+  visible; only clicking Sync obtains new observations.
 - Local product filter applies to all tables; status filters the stock table;
   activity type/date filter the event table and chart. Metrics and slot monitor
   always reflect the full snapshot. Activity dates and timestamps use UTC.
 - Low-stock threshold defaults to 2, with an alert at or below the threshold.
   Expiry compares against the dashboard computer's local date, valid through today.
 - Activity chart shows daily event counts, **not** stock-over-time. ON_RACK may
-  mean receipts/returns/moves; REMOVED means expired-scan rejection, not necessarily
+  mean first placements/returns; assignment changes alone are not ON_RACK.
+  REMOVED means expired-scan rejection, not necessarily
   stock reduction. Events never drive inventory totals.
 
 ## Tests and live acceptance
@@ -132,10 +179,16 @@ or malformed page is an error, not an empty database. Timeouts are finite
 
 Tests cover pagination (including integer cursors and exact page boundaries),
 empty/malformed/error responses, enum/date validation, key deduplication,
+strict required-but-nullable occupancy fields, boolean/timestamp rejection,
+demo availability across false/unknown/true occupancy and old/missing/future
+observation times, timezone-aware age display, the slot-state matrix, unchanged
 status-based totals, quality warnings, expiry, failure-safe session state, and
 headless Streamlit rendering. Streamlit AppTest checks initial/rerun/filter
 behavior without Firebase access, successful Sync, empty data, and failed Sync
-retaining the previous snapshot. Tests use fake public config only.
+retaining the previous snapshot. Tests also check occupancy timestamps, truthful
+unknown labels, demo metric labels/counts, local threshold changes without reads,
+and an aged frozen snapshot being explicitly labeled non-live. Tests use fake
+public config only.
 
 Validated locally with the pinned requirements on Python 3.11. No Python test calls
 live Firebase. Headless AppTest is not a visual browser/device test.
@@ -143,5 +196,12 @@ live Firebase. Headless AppTest is not a visual browser/device test.
 After approved deployment, manually verify real multi-page record counts against
 Firebase; change stock via the phone/ESP32, confirm the UI stays unchanged until
 Sync, then confirm all sections update. Check browser layout/spinner and request
-logs for reads only. Offline tests do not establish live permissions or
-transactional consistency.
+logs for reads only. Verify unreported occupancy remains Unknown while an
+unassigned false/unknown slot counts as Available (demo), assigned EMPTY is
+Awaiting placement, pending vacancy is reserved, and occupied unassigned is
+unidentified. Stop rack reporting and Sync later: old observations must retain
+honest age labels without reducing demo availability or changing stock totals.
+Known occupied slots must still be unavailable even with old/missing timestamps.
+Leave a successful snapshot idle, then interact locally: snapshot age must be
+visible while cards remain explicitly at-sync; only Sync obtains new data.
+Offline tests do not establish live permissions or transactional consistency.

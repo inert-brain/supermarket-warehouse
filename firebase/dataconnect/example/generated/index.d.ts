@@ -21,6 +21,25 @@ export interface Activity_Key {
   __typename?: 'Activity_Key';
 }
 
+export interface AssignProductToSlotData {
+  binding?: number | null;
+}
+
+export interface AssignProductToSlotVariables {
+  productID: string;
+  targetSlotID: number;
+}
+
+export interface ChangeAssignedSlotData {
+  binding?: number | null;
+}
+
+export interface ChangeAssignedSlotVariables {
+  productID: string;
+  sourceSlotID: number;
+  targetSlotID: number;
+}
+
 export interface DashboardActivitiesData {
   activities?: unknown[] | null;
 }
@@ -49,9 +68,7 @@ export interface DashboardStocksVariables {
 }
 
 export interface DispatchProductData {
-  stock_updateMany: number;
-  source: number;
-  activity_insert: Activity_Key;
+  dispatch?: number | null;
 }
 
 export interface DispatchProductVariables {
@@ -71,6 +88,8 @@ export interface GetLocationSnapshotData {
     slotId: number;
     productID?: string | null;
     assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
     stock?: {
       productID: string;
       currentStatus: StockStatus;
@@ -80,6 +99,8 @@ export interface GetLocationSnapshotData {
     slotId: number;
     productID?: string | null;
     assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
   } & Slot_Key)[];
 }
 
@@ -99,6 +120,8 @@ export interface GetProductContextData {
     slotId: number;
     productID?: string | null;
     assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
   } & Slot_Key)[];
 }
 
@@ -110,6 +133,9 @@ export interface GetSlotBindingsData {
   slots: ({
     slotId: number;
     productID?: string | null;
+    assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
   } & Slot_Key)[];
 }
 
@@ -118,6 +144,8 @@ export interface GetSlotMenuData {
     slotId: number;
     productID?: string | null;
     assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
     stock?: {
       productID: string;
       currentStatus: StockStatus;
@@ -135,30 +163,6 @@ export interface GetStockByProductIdData {
 
 export interface GetStockByProductIdVariables {
   productID: string;
-}
-
-export interface MoveProductData {
-  stock_updateMany: number;
-  source: number;
-  target: number;
-  activity_insert: Activity_Key;
-}
-
-export interface MoveProductVariables {
-  productID: string;
-  sourceSlotID: number;
-  targetSlotID: number;
-}
-
-export interface PlaceProductData {
-  stock_updateMany: number;
-  slot_updateMany: number;
-  activity_insert: Activity_Key;
-}
-
-export interface PlaceProductVariables {
-  productID: string;
-  targetSlotID: number;
 }
 
 export interface RecordExpiredScanData {
@@ -179,15 +183,27 @@ export interface RecordExpiredScanVariables {
   sourceSlotID?: number | null;
 }
 
-export interface ReturnProductData {
-  stock_updateMany: number;
-  source: number;
-  activity_insert: Activity_Key;
+export interface ReportSlotOccupancyData {
+  observation?: number | null;
+  query?: {
+    slot?: {
+      slotId: number;
+      productID?: string | null;
+      assignedAt?: TimestampString | null;
+      isOccupied?: boolean | null;
+      occupancyUpdatedAt?: TimestampString | null;
+      stock?: {
+        productID: string;
+        currentStatus: StockStatus;
+        statusUpdatedAt: TimestampString;
+      } & Stock_Key;
+    } & Slot_Key;
+  };
 }
 
-export interface ReturnProductVariables {
-  productID: string;
-  sourceSlotID: number;
+export interface ReportSlotOccupancyVariables {
+  slotID: number;
+  occupied: boolean;
 }
 
 export interface Slot_Key {
@@ -200,64 +216,41 @@ export interface Stock_Key {
   __typename?: 'Stock_Key';
 }
 
-export interface TakeOffRackData {
-  stock_updateMany: number;
-  source: number;
-  activity_insert: Activity_Key;
-}
-
-export interface TakeOffRackVariables {
-  productID: string;
-  sourceSlotID: number;
-}
-
-interface PlaceProductRef {
+interface ReportSlotOccupancyRef {
   /* Allow users to create refs without passing in DataConnect */
-  (vars: PlaceProductVariables): MutationRef<PlaceProductData, PlaceProductVariables>;
+  (vars: ReportSlotOccupancyVariables): MutationRef<ReportSlotOccupancyData, ReportSlotOccupancyVariables>;
   /* Allow users to pass in custom DataConnect instances */
-  (dc: DataConnect, vars: PlaceProductVariables): MutationRef<PlaceProductData, PlaceProductVariables>;
+  (dc: DataConnect, vars: ReportSlotOccupancyVariables): MutationRef<ReportSlotOccupancyData, ReportSlotOccupancyVariables>;
   operationName: string;
 }
-export const placeProductRef: PlaceProductRef;
+export const reportSlotOccupancyRef: ReportSlotOccupancyRef;
 
-export function placeProduct(vars: PlaceProductVariables): MutationPromise<PlaceProductData, PlaceProductVariables>;
-export function placeProduct(dc: DataConnect, vars: PlaceProductVariables): MutationPromise<PlaceProductData, PlaceProductVariables>;
+export function reportSlotOccupancy(vars: ReportSlotOccupancyVariables): MutationPromise<ReportSlotOccupancyData, ReportSlotOccupancyVariables>;
+export function reportSlotOccupancy(dc: DataConnect, vars: ReportSlotOccupancyVariables): MutationPromise<ReportSlotOccupancyData, ReportSlotOccupancyVariables>;
 
-interface TakeOffRackRef {
+interface AssignProductToSlotRef {
   /* Allow users to create refs without passing in DataConnect */
-  (vars: TakeOffRackVariables): MutationRef<TakeOffRackData, TakeOffRackVariables>;
+  (vars: AssignProductToSlotVariables): MutationRef<AssignProductToSlotData, AssignProductToSlotVariables>;
   /* Allow users to pass in custom DataConnect instances */
-  (dc: DataConnect, vars: TakeOffRackVariables): MutationRef<TakeOffRackData, TakeOffRackVariables>;
+  (dc: DataConnect, vars: AssignProductToSlotVariables): MutationRef<AssignProductToSlotData, AssignProductToSlotVariables>;
   operationName: string;
 }
-export const takeOffRackRef: TakeOffRackRef;
+export const assignProductToSlotRef: AssignProductToSlotRef;
 
-export function takeOffRack(vars: TakeOffRackVariables): MutationPromise<TakeOffRackData, TakeOffRackVariables>;
-export function takeOffRack(dc: DataConnect, vars: TakeOffRackVariables): MutationPromise<TakeOffRackData, TakeOffRackVariables>;
+export function assignProductToSlot(vars: AssignProductToSlotVariables): MutationPromise<AssignProductToSlotData, AssignProductToSlotVariables>;
+export function assignProductToSlot(dc: DataConnect, vars: AssignProductToSlotVariables): MutationPromise<AssignProductToSlotData, AssignProductToSlotVariables>;
 
-interface ReturnProductRef {
+interface ChangeAssignedSlotRef {
   /* Allow users to create refs without passing in DataConnect */
-  (vars: ReturnProductVariables): MutationRef<ReturnProductData, ReturnProductVariables>;
+  (vars: ChangeAssignedSlotVariables): MutationRef<ChangeAssignedSlotData, ChangeAssignedSlotVariables>;
   /* Allow users to pass in custom DataConnect instances */
-  (dc: DataConnect, vars: ReturnProductVariables): MutationRef<ReturnProductData, ReturnProductVariables>;
+  (dc: DataConnect, vars: ChangeAssignedSlotVariables): MutationRef<ChangeAssignedSlotData, ChangeAssignedSlotVariables>;
   operationName: string;
 }
-export const returnProductRef: ReturnProductRef;
+export const changeAssignedSlotRef: ChangeAssignedSlotRef;
 
-export function returnProduct(vars: ReturnProductVariables): MutationPromise<ReturnProductData, ReturnProductVariables>;
-export function returnProduct(dc: DataConnect, vars: ReturnProductVariables): MutationPromise<ReturnProductData, ReturnProductVariables>;
-
-interface MoveProductRef {
-  /* Allow users to create refs without passing in DataConnect */
-  (vars: MoveProductVariables): MutationRef<MoveProductData, MoveProductVariables>;
-  /* Allow users to pass in custom DataConnect instances */
-  (dc: DataConnect, vars: MoveProductVariables): MutationRef<MoveProductData, MoveProductVariables>;
-  operationName: string;
-}
-export const moveProductRef: MoveProductRef;
-
-export function moveProduct(vars: MoveProductVariables): MutationPromise<MoveProductData, MoveProductVariables>;
-export function moveProduct(dc: DataConnect, vars: MoveProductVariables): MutationPromise<MoveProductData, MoveProductVariables>;
+export function changeAssignedSlot(vars: ChangeAssignedSlotVariables): MutationPromise<ChangeAssignedSlotData, ChangeAssignedSlotVariables>;
+export function changeAssignedSlot(dc: DataConnect, vars: ChangeAssignedSlotVariables): MutationPromise<ChangeAssignedSlotData, ChangeAssignedSlotVariables>;
 
 interface DispatchProductRef {
   /* Allow users to create refs without passing in DataConnect */

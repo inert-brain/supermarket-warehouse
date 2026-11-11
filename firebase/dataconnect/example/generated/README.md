@@ -17,10 +17,9 @@ This README will guide you through the process of using the generated JavaScript
   - [*DashboardActivities*](#dashboardactivities)
   - [*GetStockByProductID*](#getstockbyproductid)
 - [**Mutations**](#mutations)
-  - [*PlaceProduct*](#placeproduct)
-  - [*TakeOffRack*](#takeoffrack)
-  - [*ReturnProduct*](#returnproduct)
-  - [*MoveProduct*](#moveproduct)
+  - [*ReportSlotOccupancy*](#reportslotoccupancy)
+  - [*AssignProductToSlot*](#assignproducttoslot)
+  - [*ChangeAssignedSlot*](#changeassignedslot)
   - [*DispatchProduct*](#dispatchproduct)
   - [*RecordExpiredScan*](#recordexpiredscan)
 
@@ -109,6 +108,9 @@ export interface GetSlotBindingsData {
   slots: ({
     slotId: number;
     productID?: string | null;
+    assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
   } & Slot_Key)[];
 }
 ```
@@ -217,6 +219,8 @@ export interface GetProductContextData {
     slotId: number;
     productID?: string | null;
     assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
   } & Slot_Key)[];
 }
 ```
@@ -328,6 +332,8 @@ export interface GetSlotMenuData {
     slotId: number;
     productID?: string | null;
     assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
     stock?: {
       productID: string;
       currentStatus: StockStatus;
@@ -440,6 +446,8 @@ export interface GetLocationSnapshotData {
     slotId: number;
     productID?: string | null;
     assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
     stock?: {
       productID: string;
       currentStatus: StockStatus;
@@ -449,6 +457,8 @@ export interface GetLocationSnapshotData {
     slotId: number;
     productID?: string | null;
     assignedAt?: TimestampString | null;
+    isOccupied?: boolean | null;
+    occupancyUpdatedAt?: TimestampString | null;
   } & Slot_Key)[];
 }
 ```
@@ -987,499 +997,360 @@ The following is true for both the action shortcut function and the `MutationRef
 
 Below are examples of how to use the `example` connector's generated functions to execute each mutation. You can also follow the examples from the [Data Connect documentation](https://firebase.google.com/docs/data-connect/web-sdk#using-mutations).
 
-## PlaceProduct
-You can execute the `PlaceProduct` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
+## ReportSlotOccupancy
+You can execute the `ReportSlotOccupancy` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
 ```typescript
-placeProduct(vars: PlaceProductVariables): MutationPromise<PlaceProductData, PlaceProductVariables>;
+reportSlotOccupancy(vars: ReportSlotOccupancyVariables): MutationPromise<ReportSlotOccupancyData, ReportSlotOccupancyVariables>;
 
-interface PlaceProductRef {
+interface ReportSlotOccupancyRef {
   ...
   /* Allow users to create refs without passing in DataConnect */
-  (vars: PlaceProductVariables): MutationRef<PlaceProductData, PlaceProductVariables>;
+  (vars: ReportSlotOccupancyVariables): MutationRef<ReportSlotOccupancyData, ReportSlotOccupancyVariables>;
 }
-export const placeProductRef: PlaceProductRef;
+export const reportSlotOccupancyRef: ReportSlotOccupancyRef;
 ```
 You can also pass in a `DataConnect` instance to the action shortcut function or `MutationRef` function.
 ```typescript
-placeProduct(dc: DataConnect, vars: PlaceProductVariables): MutationPromise<PlaceProductData, PlaceProductVariables>;
+reportSlotOccupancy(dc: DataConnect, vars: ReportSlotOccupancyVariables): MutationPromise<ReportSlotOccupancyData, ReportSlotOccupancyVariables>;
 
-interface PlaceProductRef {
+interface ReportSlotOccupancyRef {
   ...
-  (dc: DataConnect, vars: PlaceProductVariables): MutationRef<PlaceProductData, PlaceProductVariables>;
+  (dc: DataConnect, vars: ReportSlotOccupancyVariables): MutationRef<ReportSlotOccupancyData, ReportSlotOccupancyVariables>;
 }
-export const placeProductRef: PlaceProductRef;
+export const reportSlotOccupancyRef: ReportSlotOccupancyRef;
 ```
 
-If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the placeProductRef:
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the reportSlotOccupancyRef:
 ```typescript
-const name = placeProductRef.operationName;
+const name = reportSlotOccupancyRef.operationName;
 console.log(name);
 ```
 
 ### Variables
-The `PlaceProduct` mutation requires an argument of type `PlaceProductVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+The `ReportSlotOccupancy` mutation requires an argument of type `ReportSlotOccupancyVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
 
 ```typescript
-export interface PlaceProductVariables {
+export interface ReportSlotOccupancyVariables {
+  slotID: number;
+  occupied: boolean;
+}
+```
+### Return Type
+Recall that executing the `ReportSlotOccupancy` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
+
+The `data` property is an object of type `ReportSlotOccupancyData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+```typescript
+export interface ReportSlotOccupancyData {
+  observation?: number | null;
+  query?: {
+    slot?: {
+      slotId: number;
+      productID?: string | null;
+      assignedAt?: TimestampString | null;
+      isOccupied?: boolean | null;
+      occupancyUpdatedAt?: TimestampString | null;
+      stock?: {
+        productID: string;
+        currentStatus: StockStatus;
+        statusUpdatedAt: TimestampString;
+      } & Stock_Key;
+    } & Slot_Key;
+  };
+}
+```
+### Using `ReportSlotOccupancy`'s action shortcut function
+
+```typescript
+import { getDataConnect } from 'firebase/data-connect';
+import { connectorConfig, reportSlotOccupancy, ReportSlotOccupancyVariables } from '@dataconnect/example';
+
+// The `ReportSlotOccupancy` mutation requires an argument of type `ReportSlotOccupancyVariables`:
+const reportSlotOccupancyVars: ReportSlotOccupancyVariables = {
+  slotID: ...,
+  occupied: ...,
+};
+
+// Call the `reportSlotOccupancy()` function to execute the mutation.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await reportSlotOccupancy(reportSlotOccupancyVars);
+// Variables can be defined inline as well.
+const { data } = await reportSlotOccupancy({ slotID: ..., occupied: ..., });
+
+// You can also pass in a `DataConnect` instance to the action shortcut function.
+const dataConnect = getDataConnect(connectorConfig);
+const { data } = await reportSlotOccupancy(dataConnect, reportSlotOccupancyVars);
+
+console.log(data.observation);
+console.log(data.query);
+
+// Or, you can use the `Promise` API.
+reportSlotOccupancy(reportSlotOccupancyVars).then((response) => {
+  const data = response.data;
+  console.log(data.observation);
+  console.log(data.query);
+});
+```
+
+### Using `ReportSlotOccupancy`'s `MutationRef` function
+
+```typescript
+import { getDataConnect, executeMutation } from 'firebase/data-connect';
+import { connectorConfig, reportSlotOccupancyRef, ReportSlotOccupancyVariables } from '@dataconnect/example';
+
+// The `ReportSlotOccupancy` mutation requires an argument of type `ReportSlotOccupancyVariables`:
+const reportSlotOccupancyVars: ReportSlotOccupancyVariables = {
+  slotID: ...,
+  occupied: ...,
+};
+
+// Call the `reportSlotOccupancyRef()` function to get a reference to the mutation.
+const ref = reportSlotOccupancyRef(reportSlotOccupancyVars);
+// Variables can be defined inline as well.
+const ref = reportSlotOccupancyRef({ slotID: ..., occupied: ..., });
+
+// You can also pass in a `DataConnect` instance to the `MutationRef` function.
+const dataConnect = getDataConnect(connectorConfig);
+const ref = reportSlotOccupancyRef(dataConnect, reportSlotOccupancyVars);
+
+// Call `executeMutation()` on the reference to execute the mutation.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await executeMutation(ref);
+
+console.log(data.observation);
+console.log(data.query);
+
+// Or, you can use the `Promise` API.
+executeMutation(ref).then((response) => {
+  const data = response.data;
+  console.log(data.observation);
+  console.log(data.query);
+});
+```
+
+## AssignProductToSlot
+You can execute the `AssignProductToSlot` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
+```typescript
+assignProductToSlot(vars: AssignProductToSlotVariables): MutationPromise<AssignProductToSlotData, AssignProductToSlotVariables>;
+
+interface AssignProductToSlotRef {
+  ...
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: AssignProductToSlotVariables): MutationRef<AssignProductToSlotData, AssignProductToSlotVariables>;
+}
+export const assignProductToSlotRef: AssignProductToSlotRef;
+```
+You can also pass in a `DataConnect` instance to the action shortcut function or `MutationRef` function.
+```typescript
+assignProductToSlot(dc: DataConnect, vars: AssignProductToSlotVariables): MutationPromise<AssignProductToSlotData, AssignProductToSlotVariables>;
+
+interface AssignProductToSlotRef {
+  ...
+  (dc: DataConnect, vars: AssignProductToSlotVariables): MutationRef<AssignProductToSlotData, AssignProductToSlotVariables>;
+}
+export const assignProductToSlotRef: AssignProductToSlotRef;
+```
+
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the assignProductToSlotRef:
+```typescript
+const name = assignProductToSlotRef.operationName;
+console.log(name);
+```
+
+### Variables
+The `AssignProductToSlot` mutation requires an argument of type `AssignProductToSlotVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+
+```typescript
+export interface AssignProductToSlotVariables {
   productID: string;
   targetSlotID: number;
 }
 ```
 ### Return Type
-Recall that executing the `PlaceProduct` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
+Recall that executing the `AssignProductToSlot` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
 
-The `data` property is an object of type `PlaceProductData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+The `data` property is an object of type `AssignProductToSlotData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
 ```typescript
-export interface PlaceProductData {
-  stock_updateMany: number;
-  slot_updateMany: number;
-  activity_insert: Activity_Key;
+export interface AssignProductToSlotData {
+  binding?: number | null;
 }
 ```
-### Using `PlaceProduct`'s action shortcut function
+### Using `AssignProductToSlot`'s action shortcut function
 
 ```typescript
 import { getDataConnect } from 'firebase/data-connect';
-import { connectorConfig, placeProduct, PlaceProductVariables } from '@dataconnect/example';
+import { connectorConfig, assignProductToSlot, AssignProductToSlotVariables } from '@dataconnect/example';
 
-// The `PlaceProduct` mutation requires an argument of type `PlaceProductVariables`:
-const placeProductVars: PlaceProductVariables = {
+// The `AssignProductToSlot` mutation requires an argument of type `AssignProductToSlotVariables`:
+const assignProductToSlotVars: AssignProductToSlotVariables = {
   productID: ...,
   targetSlotID: ...,
 };
 
-// Call the `placeProduct()` function to execute the mutation.
+// Call the `assignProductToSlot()` function to execute the mutation.
 // You can use the `await` keyword to wait for the promise to resolve.
-const { data } = await placeProduct(placeProductVars);
+const { data } = await assignProductToSlot(assignProductToSlotVars);
 // Variables can be defined inline as well.
-const { data } = await placeProduct({ productID: ..., targetSlotID: ..., });
+const { data } = await assignProductToSlot({ productID: ..., targetSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
-const { data } = await placeProduct(dataConnect, placeProductVars);
+const { data } = await assignProductToSlot(dataConnect, assignProductToSlotVars);
 
-console.log(data.stock_updateMany);
-console.log(data.slot_updateMany);
-console.log(data.activity_insert);
+console.log(data.binding);
 
 // Or, you can use the `Promise` API.
-placeProduct(placeProductVars).then((response) => {
+assignProductToSlot(assignProductToSlotVars).then((response) => {
   const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.slot_updateMany);
-  console.log(data.activity_insert);
+  console.log(data.binding);
 });
 ```
 
-### Using `PlaceProduct`'s `MutationRef` function
+### Using `AssignProductToSlot`'s `MutationRef` function
 
 ```typescript
 import { getDataConnect, executeMutation } from 'firebase/data-connect';
-import { connectorConfig, placeProductRef, PlaceProductVariables } from '@dataconnect/example';
+import { connectorConfig, assignProductToSlotRef, AssignProductToSlotVariables } from '@dataconnect/example';
 
-// The `PlaceProduct` mutation requires an argument of type `PlaceProductVariables`:
-const placeProductVars: PlaceProductVariables = {
+// The `AssignProductToSlot` mutation requires an argument of type `AssignProductToSlotVariables`:
+const assignProductToSlotVars: AssignProductToSlotVariables = {
   productID: ...,
   targetSlotID: ...,
 };
 
-// Call the `placeProductRef()` function to get a reference to the mutation.
-const ref = placeProductRef(placeProductVars);
+// Call the `assignProductToSlotRef()` function to get a reference to the mutation.
+const ref = assignProductToSlotRef(assignProductToSlotVars);
 // Variables can be defined inline as well.
-const ref = placeProductRef({ productID: ..., targetSlotID: ..., });
+const ref = assignProductToSlotRef({ productID: ..., targetSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `MutationRef` function.
 const dataConnect = getDataConnect(connectorConfig);
-const ref = placeProductRef(dataConnect, placeProductVars);
+const ref = assignProductToSlotRef(dataConnect, assignProductToSlotVars);
 
 // Call `executeMutation()` on the reference to execute the mutation.
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await executeMutation(ref);
 
-console.log(data.stock_updateMany);
-console.log(data.slot_updateMany);
-console.log(data.activity_insert);
+console.log(data.binding);
 
 // Or, you can use the `Promise` API.
 executeMutation(ref).then((response) => {
   const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.slot_updateMany);
-  console.log(data.activity_insert);
+  console.log(data.binding);
 });
 ```
 
-## TakeOffRack
-You can execute the `TakeOffRack` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
+## ChangeAssignedSlot
+You can execute the `ChangeAssignedSlot` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
 ```typescript
-takeOffRack(vars: TakeOffRackVariables): MutationPromise<TakeOffRackData, TakeOffRackVariables>;
+changeAssignedSlot(vars: ChangeAssignedSlotVariables): MutationPromise<ChangeAssignedSlotData, ChangeAssignedSlotVariables>;
 
-interface TakeOffRackRef {
+interface ChangeAssignedSlotRef {
   ...
   /* Allow users to create refs without passing in DataConnect */
-  (vars: TakeOffRackVariables): MutationRef<TakeOffRackData, TakeOffRackVariables>;
+  (vars: ChangeAssignedSlotVariables): MutationRef<ChangeAssignedSlotData, ChangeAssignedSlotVariables>;
 }
-export const takeOffRackRef: TakeOffRackRef;
+export const changeAssignedSlotRef: ChangeAssignedSlotRef;
 ```
 You can also pass in a `DataConnect` instance to the action shortcut function or `MutationRef` function.
 ```typescript
-takeOffRack(dc: DataConnect, vars: TakeOffRackVariables): MutationPromise<TakeOffRackData, TakeOffRackVariables>;
+changeAssignedSlot(dc: DataConnect, vars: ChangeAssignedSlotVariables): MutationPromise<ChangeAssignedSlotData, ChangeAssignedSlotVariables>;
 
-interface TakeOffRackRef {
+interface ChangeAssignedSlotRef {
   ...
-  (dc: DataConnect, vars: TakeOffRackVariables): MutationRef<TakeOffRackData, TakeOffRackVariables>;
+  (dc: DataConnect, vars: ChangeAssignedSlotVariables): MutationRef<ChangeAssignedSlotData, ChangeAssignedSlotVariables>;
 }
-export const takeOffRackRef: TakeOffRackRef;
+export const changeAssignedSlotRef: ChangeAssignedSlotRef;
 ```
 
-If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the takeOffRackRef:
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the changeAssignedSlotRef:
 ```typescript
-const name = takeOffRackRef.operationName;
+const name = changeAssignedSlotRef.operationName;
 console.log(name);
 ```
 
 ### Variables
-The `TakeOffRack` mutation requires an argument of type `TakeOffRackVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+The `ChangeAssignedSlot` mutation requires an argument of type `ChangeAssignedSlotVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
 
 ```typescript
-export interface TakeOffRackVariables {
-  productID: string;
-  sourceSlotID: number;
-}
-```
-### Return Type
-Recall that executing the `TakeOffRack` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
-
-The `data` property is an object of type `TakeOffRackData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
-```typescript
-export interface TakeOffRackData {
-  stock_updateMany: number;
-  source: number;
-  activity_insert: Activity_Key;
-}
-```
-### Using `TakeOffRack`'s action shortcut function
-
-```typescript
-import { getDataConnect } from 'firebase/data-connect';
-import { connectorConfig, takeOffRack, TakeOffRackVariables } from '@dataconnect/example';
-
-// The `TakeOffRack` mutation requires an argument of type `TakeOffRackVariables`:
-const takeOffRackVars: TakeOffRackVariables = {
-  productID: ...,
-  sourceSlotID: ...,
-};
-
-// Call the `takeOffRack()` function to execute the mutation.
-// You can use the `await` keyword to wait for the promise to resolve.
-const { data } = await takeOffRack(takeOffRackVars);
-// Variables can be defined inline as well.
-const { data } = await takeOffRack({ productID: ..., sourceSlotID: ..., });
-
-// You can also pass in a `DataConnect` instance to the action shortcut function.
-const dataConnect = getDataConnect(connectorConfig);
-const { data } = await takeOffRack(dataConnect, takeOffRackVars);
-
-console.log(data.stock_updateMany);
-console.log(data.source);
-console.log(data.activity_insert);
-
-// Or, you can use the `Promise` API.
-takeOffRack(takeOffRackVars).then((response) => {
-  const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.source);
-  console.log(data.activity_insert);
-});
-```
-
-### Using `TakeOffRack`'s `MutationRef` function
-
-```typescript
-import { getDataConnect, executeMutation } from 'firebase/data-connect';
-import { connectorConfig, takeOffRackRef, TakeOffRackVariables } from '@dataconnect/example';
-
-// The `TakeOffRack` mutation requires an argument of type `TakeOffRackVariables`:
-const takeOffRackVars: TakeOffRackVariables = {
-  productID: ...,
-  sourceSlotID: ...,
-};
-
-// Call the `takeOffRackRef()` function to get a reference to the mutation.
-const ref = takeOffRackRef(takeOffRackVars);
-// Variables can be defined inline as well.
-const ref = takeOffRackRef({ productID: ..., sourceSlotID: ..., });
-
-// You can also pass in a `DataConnect` instance to the `MutationRef` function.
-const dataConnect = getDataConnect(connectorConfig);
-const ref = takeOffRackRef(dataConnect, takeOffRackVars);
-
-// Call `executeMutation()` on the reference to execute the mutation.
-// You can use the `await` keyword to wait for the promise to resolve.
-const { data } = await executeMutation(ref);
-
-console.log(data.stock_updateMany);
-console.log(data.source);
-console.log(data.activity_insert);
-
-// Or, you can use the `Promise` API.
-executeMutation(ref).then((response) => {
-  const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.source);
-  console.log(data.activity_insert);
-});
-```
-
-## ReturnProduct
-You can execute the `ReturnProduct` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
-```typescript
-returnProduct(vars: ReturnProductVariables): MutationPromise<ReturnProductData, ReturnProductVariables>;
-
-interface ReturnProductRef {
-  ...
-  /* Allow users to create refs without passing in DataConnect */
-  (vars: ReturnProductVariables): MutationRef<ReturnProductData, ReturnProductVariables>;
-}
-export const returnProductRef: ReturnProductRef;
-```
-You can also pass in a `DataConnect` instance to the action shortcut function or `MutationRef` function.
-```typescript
-returnProduct(dc: DataConnect, vars: ReturnProductVariables): MutationPromise<ReturnProductData, ReturnProductVariables>;
-
-interface ReturnProductRef {
-  ...
-  (dc: DataConnect, vars: ReturnProductVariables): MutationRef<ReturnProductData, ReturnProductVariables>;
-}
-export const returnProductRef: ReturnProductRef;
-```
-
-If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the returnProductRef:
-```typescript
-const name = returnProductRef.operationName;
-console.log(name);
-```
-
-### Variables
-The `ReturnProduct` mutation requires an argument of type `ReturnProductVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
-
-```typescript
-export interface ReturnProductVariables {
-  productID: string;
-  sourceSlotID: number;
-}
-```
-### Return Type
-Recall that executing the `ReturnProduct` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
-
-The `data` property is an object of type `ReturnProductData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
-```typescript
-export interface ReturnProductData {
-  stock_updateMany: number;
-  source: number;
-  activity_insert: Activity_Key;
-}
-```
-### Using `ReturnProduct`'s action shortcut function
-
-```typescript
-import { getDataConnect } from 'firebase/data-connect';
-import { connectorConfig, returnProduct, ReturnProductVariables } from '@dataconnect/example';
-
-// The `ReturnProduct` mutation requires an argument of type `ReturnProductVariables`:
-const returnProductVars: ReturnProductVariables = {
-  productID: ...,
-  sourceSlotID: ...,
-};
-
-// Call the `returnProduct()` function to execute the mutation.
-// You can use the `await` keyword to wait for the promise to resolve.
-const { data } = await returnProduct(returnProductVars);
-// Variables can be defined inline as well.
-const { data } = await returnProduct({ productID: ..., sourceSlotID: ..., });
-
-// You can also pass in a `DataConnect` instance to the action shortcut function.
-const dataConnect = getDataConnect(connectorConfig);
-const { data } = await returnProduct(dataConnect, returnProductVars);
-
-console.log(data.stock_updateMany);
-console.log(data.source);
-console.log(data.activity_insert);
-
-// Or, you can use the `Promise` API.
-returnProduct(returnProductVars).then((response) => {
-  const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.source);
-  console.log(data.activity_insert);
-});
-```
-
-### Using `ReturnProduct`'s `MutationRef` function
-
-```typescript
-import { getDataConnect, executeMutation } from 'firebase/data-connect';
-import { connectorConfig, returnProductRef, ReturnProductVariables } from '@dataconnect/example';
-
-// The `ReturnProduct` mutation requires an argument of type `ReturnProductVariables`:
-const returnProductVars: ReturnProductVariables = {
-  productID: ...,
-  sourceSlotID: ...,
-};
-
-// Call the `returnProductRef()` function to get a reference to the mutation.
-const ref = returnProductRef(returnProductVars);
-// Variables can be defined inline as well.
-const ref = returnProductRef({ productID: ..., sourceSlotID: ..., });
-
-// You can also pass in a `DataConnect` instance to the `MutationRef` function.
-const dataConnect = getDataConnect(connectorConfig);
-const ref = returnProductRef(dataConnect, returnProductVars);
-
-// Call `executeMutation()` on the reference to execute the mutation.
-// You can use the `await` keyword to wait for the promise to resolve.
-const { data } = await executeMutation(ref);
-
-console.log(data.stock_updateMany);
-console.log(data.source);
-console.log(data.activity_insert);
-
-// Or, you can use the `Promise` API.
-executeMutation(ref).then((response) => {
-  const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.source);
-  console.log(data.activity_insert);
-});
-```
-
-## MoveProduct
-You can execute the `MoveProduct` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
-```typescript
-moveProduct(vars: MoveProductVariables): MutationPromise<MoveProductData, MoveProductVariables>;
-
-interface MoveProductRef {
-  ...
-  /* Allow users to create refs without passing in DataConnect */
-  (vars: MoveProductVariables): MutationRef<MoveProductData, MoveProductVariables>;
-}
-export const moveProductRef: MoveProductRef;
-```
-You can also pass in a `DataConnect` instance to the action shortcut function or `MutationRef` function.
-```typescript
-moveProduct(dc: DataConnect, vars: MoveProductVariables): MutationPromise<MoveProductData, MoveProductVariables>;
-
-interface MoveProductRef {
-  ...
-  (dc: DataConnect, vars: MoveProductVariables): MutationRef<MoveProductData, MoveProductVariables>;
-}
-export const moveProductRef: MoveProductRef;
-```
-
-If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the moveProductRef:
-```typescript
-const name = moveProductRef.operationName;
-console.log(name);
-```
-
-### Variables
-The `MoveProduct` mutation requires an argument of type `MoveProductVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
-
-```typescript
-export interface MoveProductVariables {
+export interface ChangeAssignedSlotVariables {
   productID: string;
   sourceSlotID: number;
   targetSlotID: number;
 }
 ```
 ### Return Type
-Recall that executing the `MoveProduct` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
+Recall that executing the `ChangeAssignedSlot` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
 
-The `data` property is an object of type `MoveProductData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+The `data` property is an object of type `ChangeAssignedSlotData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
 ```typescript
-export interface MoveProductData {
-  stock_updateMany: number;
-  source: number;
-  target: number;
-  activity_insert: Activity_Key;
+export interface ChangeAssignedSlotData {
+  binding?: number | null;
 }
 ```
-### Using `MoveProduct`'s action shortcut function
+### Using `ChangeAssignedSlot`'s action shortcut function
 
 ```typescript
 import { getDataConnect } from 'firebase/data-connect';
-import { connectorConfig, moveProduct, MoveProductVariables } from '@dataconnect/example';
+import { connectorConfig, changeAssignedSlot, ChangeAssignedSlotVariables } from '@dataconnect/example';
 
-// The `MoveProduct` mutation requires an argument of type `MoveProductVariables`:
-const moveProductVars: MoveProductVariables = {
+// The `ChangeAssignedSlot` mutation requires an argument of type `ChangeAssignedSlotVariables`:
+const changeAssignedSlotVars: ChangeAssignedSlotVariables = {
   productID: ...,
   sourceSlotID: ...,
   targetSlotID: ...,
 };
 
-// Call the `moveProduct()` function to execute the mutation.
+// Call the `changeAssignedSlot()` function to execute the mutation.
 // You can use the `await` keyword to wait for the promise to resolve.
-const { data } = await moveProduct(moveProductVars);
+const { data } = await changeAssignedSlot(changeAssignedSlotVars);
 // Variables can be defined inline as well.
-const { data } = await moveProduct({ productID: ..., sourceSlotID: ..., targetSlotID: ..., });
+const { data } = await changeAssignedSlot({ productID: ..., sourceSlotID: ..., targetSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
-const { data } = await moveProduct(dataConnect, moveProductVars);
+const { data } = await changeAssignedSlot(dataConnect, changeAssignedSlotVars);
 
-console.log(data.stock_updateMany);
-console.log(data.source);
-console.log(data.target);
-console.log(data.activity_insert);
+console.log(data.binding);
 
 // Or, you can use the `Promise` API.
-moveProduct(moveProductVars).then((response) => {
+changeAssignedSlot(changeAssignedSlotVars).then((response) => {
   const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.source);
-  console.log(data.target);
-  console.log(data.activity_insert);
+  console.log(data.binding);
 });
 ```
 
-### Using `MoveProduct`'s `MutationRef` function
+### Using `ChangeAssignedSlot`'s `MutationRef` function
 
 ```typescript
 import { getDataConnect, executeMutation } from 'firebase/data-connect';
-import { connectorConfig, moveProductRef, MoveProductVariables } from '@dataconnect/example';
+import { connectorConfig, changeAssignedSlotRef, ChangeAssignedSlotVariables } from '@dataconnect/example';
 
-// The `MoveProduct` mutation requires an argument of type `MoveProductVariables`:
-const moveProductVars: MoveProductVariables = {
+// The `ChangeAssignedSlot` mutation requires an argument of type `ChangeAssignedSlotVariables`:
+const changeAssignedSlotVars: ChangeAssignedSlotVariables = {
   productID: ...,
   sourceSlotID: ...,
   targetSlotID: ...,
 };
 
-// Call the `moveProductRef()` function to get a reference to the mutation.
-const ref = moveProductRef(moveProductVars);
+// Call the `changeAssignedSlotRef()` function to get a reference to the mutation.
+const ref = changeAssignedSlotRef(changeAssignedSlotVars);
 // Variables can be defined inline as well.
-const ref = moveProductRef({ productID: ..., sourceSlotID: ..., targetSlotID: ..., });
+const ref = changeAssignedSlotRef({ productID: ..., sourceSlotID: ..., targetSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `MutationRef` function.
 const dataConnect = getDataConnect(connectorConfig);
-const ref = moveProductRef(dataConnect, moveProductVars);
+const ref = changeAssignedSlotRef(dataConnect, changeAssignedSlotVars);
 
 // Call `executeMutation()` on the reference to execute the mutation.
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await executeMutation(ref);
 
-console.log(data.stock_updateMany);
-console.log(data.source);
-console.log(data.target);
-console.log(data.activity_insert);
+console.log(data.binding);
 
 // Or, you can use the `Promise` API.
 executeMutation(ref).then((response) => {
   const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.source);
-  console.log(data.target);
-  console.log(data.activity_insert);
+  console.log(data.binding);
 });
 ```
 
@@ -1527,9 +1398,7 @@ Recall that executing the `DispatchProduct` mutation returns a `MutationPromise`
 The `data` property is an object of type `DispatchProductData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
 ```typescript
 export interface DispatchProductData {
-  stock_updateMany: number;
-  source: number;
-  activity_insert: Activity_Key;
+  dispatch?: number | null;
 }
 ```
 ### Using `DispatchProduct`'s action shortcut function
@@ -1554,16 +1423,12 @@ const { data } = await dispatchProduct({ productID: ..., sourceSlotID: ..., });
 const dataConnect = getDataConnect(connectorConfig);
 const { data } = await dispatchProduct(dataConnect, dispatchProductVars);
 
-console.log(data.stock_updateMany);
-console.log(data.source);
-console.log(data.activity_insert);
+console.log(data.dispatch);
 
 // Or, you can use the `Promise` API.
 dispatchProduct(dispatchProductVars).then((response) => {
   const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.source);
-  console.log(data.activity_insert);
+  console.log(data.dispatch);
 });
 ```
 
@@ -1592,16 +1457,12 @@ const ref = dispatchProductRef(dataConnect, dispatchProductVars);
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await executeMutation(ref);
 
-console.log(data.stock_updateMany);
-console.log(data.source);
-console.log(data.activity_insert);
+console.log(data.dispatch);
 
 // Or, you can use the `Promise` API.
 executeMutation(ref).then((response) => {
   const data = response.data;
-  console.log(data.stock_updateMany);
-  console.log(data.source);
-  console.log(data.activity_insert);
+  console.log(data.dispatch);
 });
 ```
 

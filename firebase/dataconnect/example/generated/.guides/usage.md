@@ -14,20 +14,17 @@ If a user is not using a supported framework, they can use the generated SDK dir
 Here's an example of how to use it with the first 5 operations:
 
 ```js
-import { placeProduct, takeOffRack, returnProduct, moveProduct, dispatchProduct, recordExpiredScan, getSlotBindings, getProductContext, getSlotMenu, getLocationSnapshot } from '@dataconnect/example';
+import { reportSlotOccupancy, assignProductToSlot, changeAssignedSlot, dispatchProduct, recordExpiredScan, getSlotBindings, getProductContext, getSlotMenu, getLocationSnapshot, dashboardStocks } from '@dataconnect/example';
 
 
-// Operation PlaceProduct:  For variables, look at type PlaceProductVars in ../index.d.ts
-const { data } = await PlaceProduct(dataConnect, placeProductVars);
+// Operation ReportSlotOccupancy:  For variables, look at type ReportSlotOccupancyVars in ../index.d.ts
+const { data } = await ReportSlotOccupancy(dataConnect, reportSlotOccupancyVars);
 
-// Operation TakeOffRack:  For variables, look at type TakeOffRackVars in ../index.d.ts
-const { data } = await TakeOffRack(dataConnect, takeOffRackVars);
+// Operation AssignProductToSlot:  For variables, look at type AssignProductToSlotVars in ../index.d.ts
+const { data } = await AssignProductToSlot(dataConnect, assignProductToSlotVars);
 
-// Operation ReturnProduct:  For variables, look at type ReturnProductVars in ../index.d.ts
-const { data } = await ReturnProduct(dataConnect, returnProductVars);
-
-// Operation MoveProduct:  For variables, look at type MoveProductVars in ../index.d.ts
-const { data } = await MoveProduct(dataConnect, moveProductVars);
+// Operation ChangeAssignedSlot:  For variables, look at type ChangeAssignedSlotVars in ../index.d.ts
+const { data } = await ChangeAssignedSlot(dataConnect, changeAssignedSlotVars);
 
 // Operation DispatchProduct:  For variables, look at type DispatchProductVars in ../index.d.ts
 const { data } = await DispatchProduct(dataConnect, dispatchProductVars);
@@ -46,6 +43,9 @@ const { data } = await GetSlotMenu(dataConnect);
 
 // Operation GetLocationSnapshot:  For variables, look at type GetLocationSnapshotVars in ../index.d.ts
 const { data } = await GetLocationSnapshot(dataConnect, getLocationSnapshotVars);
+
+// Operation DashboardStocks:  For variables, look at type DashboardStocksVars in ../index.d.ts
+const { data } = await DashboardStocks(dataConnect, dashboardStocksVars);
 
 
 ```

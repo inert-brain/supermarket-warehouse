@@ -1,4 +1,5 @@
 """Manual-only read-only Streamlit reporting UI."""
+from datetime import UTC, datetime
 import os
 
 import pandas as pd
@@ -24,7 +25,7 @@ def configured_client():
 
 def frame(rows, table):
     result = pd.DataFrame(rows, columns=FIELDS[table])
-    for field in ("statusUpdatedAt", "assignedAt", "occurredAt"):
+    for field in ("statusUpdatedAt", "assignedAt", "occupancyUpdatedAt", "occurredAt"):
         if field in result:
             result[field] = pd.to_datetime(result[field], utc=True, format="mixed")
     return result
@@ -42,33 +43,47 @@ def render(snapshot):
                f"Started: {snapshot['started_at'].isoformat()} · "
                f"Stocks: {len(stocks)} · Slots: {len(slots)} · Activities: {len(activities)}")
     st.warning("Manually refreshed reporting copy; data may be stale. Pages and tables are not a transactionally consistent snapshot.")
-    summary = stock_metrics(stocks, slots)
+    reference_at = snapshot["completed_at"]
+    age = max(0, (datetime.now(UTC) - reference_at).total_seconds())
+    st.caption(f"Snapshot age at this render: {age:.0f}s. Observation ages below are measured at sync completion, "
+               "not live rack availability. Age is display-only. No polling; click Sync for new data.")
+    summary = stock_metrics(stocks, slots, reference_at)
     for column, label, key in zip(st.columns(4),
-                                ("Warehouse units", "On rack", "Pending dispatch", "Unassigned slots"),
-                                ("warehouse", "on_rack", "pending_dispatch", "unassigned_slots")):
+                                ("Warehouse units", "On rack (stock status)", "Pending dispatch", "Available slots (demo, at sync)"),
+                                ("warehouse", "on_rack", "pending_dispatch", "available_slots")):
         column.metric(label, summary[key])
     st.caption(f"Not currently in warehouse (EMPTY): {summary['empty']} · Assigned slots: {summary['assigned_slots']}. "
-               "Unassigned is database availability, not verified Hall occupancy.")
+               "Demo availability: unassigned and saved occupancy is not true (false or unknown), regardless of age. "
+               "Unknown does not prove vacancy; reserved slots are unavailable. Stock totals use saved stock status.")
     threshold = st.number_input("Low-stock threshold (local display only)", min_value=0, value=2, step=1)
     if summary["warehouse"] <= threshold:
         st.warning(f"Low stock: {summary['warehouse']} warehouse units (threshold {threshold}).")
     st.subheader("Current stock status")
     st.bar_chart(pd.Series(summary["status_counts"], name="Units"))
 
-    warnings = quality_warnings(stocks, slots)
+    warnings = quality_warnings(stocks, slots, reference_at)
     if warnings:
         with st.expander(f"Data quality warnings ({len(warnings)})", expanded=True):
             for warning in warnings:
                 st.warning(warning)
-    st.subheader("Slot monitor")
-    cards = slot_cards(stocks, slots)
+    st.subheader("Slot monitor — at last sync, not live")
+    cards = slot_cards(stocks, slots, reference_at)
     for start in (0, 4):
         for column, card in zip(st.columns(4), cards[start:start + 4]):
             with column:
                 st.markdown(f"**Slot {card['slotId']}**")
                 st.text(card["productID"] if card["productID"] is not None else card["status"])
-                st.caption(card["status"])
-    st.caption("PENDING_DISPATCH is off rack but still reserved and counted as warehouse stock.")
+                st.caption(f"{card['status']} · at sync")
+                sensor = {True: "Occupied", False: "Vacant", None: "Unknown"}[card["isOccupied"]]
+                st.caption(f"Last sensor report: {sensor} · {card['observation_status']}")
+                observed = card["occupancyUpdatedAt"]
+                observed_utc = (datetime.fromisoformat(observed)
+                                .astimezone(UTC).isoformat() if observed else "Unknown observation time")
+                st.caption(f"Observed (UTC): {observed_utc}")
+    st.caption("Awaiting placement (EMPTY) is reserved but not counted as warehouse stock. "
+               "PENDING_DISPATCH is off-rack / reserved and still counted. "
+               "Known occupied slots are unavailable, even with old or missing observation times. "
+               "Unassigned slots with false/unknown occupancy count as demo availability, not confirmed physical vacancy.")
 
     stock_df, slot_df, activity_df = frame(stocks, "stocks"), frame(slots, "slots"), frame(activities, "activities")
     st.subheader("Local filters")
@@ -89,7 +104,7 @@ def render(snapshot):
         st.info("Select an end date to apply the activity date filter.")
     activity_df = activity_df.sort_values(["occurredAt", "activityId"], ascending=[False, False])
     st.subheader("Daily activity event counts (UTC)")
-    st.caption("Events are not historic stock balances. ON_RACK includes returns/moves; REMOVED is expired-scan rejection.")
+    st.caption("Events are not historic stock balances. ON_RACK includes first placements/returns; REMOVED is expired-scan rejection.")
     if activity_df.empty:
         st.info("No activity records match these filters.")
     else:

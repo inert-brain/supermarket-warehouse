@@ -1,261 +1,217 @@
-# ESP32-S3 + Hall Sensors → Firebase SQL Connect: Hardware Integration Plan
+# Plan: Rack Reports Occupancy; Phone Assigns Products and Confirms Dispatch
 
-## 1. Scope and architecture
+## 1. Agreed scope
 
-Implement the rack's eight Hall inputs, stable occupancy detection, and cloud synchronization when a product is lifted. Ignore the UNO, LEDs, buzzer, display, and buttons for this phase.
+Single-rack school MVP, eight slots, one product ID per physical inventory unit.
 
-```text
-Hall sensors → ESP32-S3 → Wi-Fi / HTTPS → Firebase Data Connect → PostgreSQL
-Phone app ─────────────────────────────→ Firebase Data Connect
-```
-
-No laptop-hosted backend, Firestore, Realtime Database, local SQLite sync, or SQL credentials in firmware. A computer is needed only for building/flashing firmware and deploying connector changes. The ESP32 runs independently afterward.
-
-Use the existing product/slot/activity tables and enums. Sensors report presence, not identity. Product identity always comes from the slot's assigned productID. The phone remains responsible for scanning and assigning the correct product.
-
-## 2. Verified wiring from component_connections.md
-
-The actual filename is `component_connections.md`, not `components_connections.md`.
-
-| Slot | ESP32-S3 GPIO | Hall signal |
-|---|---|---|
-| 1 | 4 | S |
-| 2 | 5 | S |
-| 3 | 6 | S |
-| 4 | 7 | S |
-| 5 | 15 | S |
-| 6 | 16 | S |
-| 7 | 17 | S |
-| 8 | 18 | S |
-
-For every module: VCC → documented 3.3 V rail; GND → common GND; S → its GPIO. Configure INPUT_PULLUP.
-
-The wiring document specifies HIGH with no magnet and LOW with a magnet. Therefore the proposed mechanical mapping is LOW = occupied and HIGH = vacant, provided a loaded platform brings the magnet near the sensor. Bench-check this for every slot before cloud testing; invert the mapping if the assembled mechanism behaves oppositely.
-
-**Electrical check:** the documented KY-003/A3144 may not switch reliably at 3.3 V; the wiring file itself flags an approximately 4.5 V minimum for some parts. Verify the actual sensor/module. Prefer a verified 3.3 V-compatible sensor if necessary. Do not simply power a module at 5 V and connect a potentially 5 V signal to an ESP32 GPIO. Any alternative supply needs verified 3.3 V-safe signal conditioning. Confirm the exact ESP32-S3 board/pin availability and module pin order. Follow the wiring file's USB/external-power precautions.
-
-## 3. Firmware setup
-
-No existing firmware/build framework is present in this folder. Proposed MVP: Arduino IDE with the stable Espressif ESP32 board package and the exact ESP32-S3 board selected. Record the chosen board and installed versions when implementing.
-
-Use:
-
-- Arduino ESP32 core: GPIO, WiFi, WiFiClientSecure, HTTPClient, Preferences if persisting a small pending event.
-- ArduinoJson for encoding/decoding connector requests and responses.
-- Serial logging only for diagnostics; it must not be required at runtime.
-
-No Firebase Firestore/RTDB Arduino library is needed: those libraries target different Firebase databases. Use Data Connect's predefined-operation REST API over HTTPS. Wi-Fi SSID/password and Firebase public configuration belong in an ignored firmware config header; commit a config example, not actual Wi-Fi credentials. Never flash a service-account private key or PostgreSQL password.
-
-Use a trusted CA certificate or supported certificate bundle and normal TLS validation, not setInsecure(). If TLS certificate checks need a valid device clock, synchronize it by NTP after Wi-Fi connects. This is connection setup only: no GPS, location detection, timezone service, or expiry logic on the ESP32.
-
-## 4. Sensor sampling
-
-- Poll all eight inputs every approximately 20 ms using millis(); avoid a blocking delay for each input.
-- Require a candidate reading to remain unchanged for about 300 ms before accepting it as stable. Make these constants configurable for bench tuning.
-- Keep raw/candidate/stable occupancy independently for each slot.
-- Stable occupied → vacant creates one removal task.
-- Repeated vacant readings create no further tasks.
-- Short magnet bounce does not create inventory events.
-- Keep Wi-Fi/HTTPS outside the sampling loop. A dedicated FreeRTOS worker can process a small queue while loop() samples sensors. Use a queue/mutex rather than shared unsynchronized state.
-- Keep a bounded pending task per slot, not an unlimited stream of raw readings. Refresh current physical/cloud state before sending delayed work.
-
-### Minimal sampling code for the implementation
-
-This is an architecture starter, not a complete flashable firmware. The cloud worker and config described below still need implementation.
-
-```cpp
-#include <Arduino.h>
-
-constexpr uint8_t HALL_PINS[8] = {4, 5, 6, 7, 15, 16, 17, 18};
-constexpr uint32_t SAMPLE_MS = 20;
-constexpr uint32_t STABLE_MS = 300;
-
-struct SlotInput {
-  bool candidateOccupied;
-  bool stableOccupied;
-  bool initialized;
-  bool baselineReady;
-  uint32_t candidateSince;
-};
-SlotInput inputs[8]{};
-
-// Queue a current-state reconciliation task; do not perform HTTPS here.
-void queueSlotSync(uint8_t slotId, bool occupied);
-
-void setupHallInputs() {
-  for (uint8_t pin : HALL_PINS) pinMode(pin, INPUT_PULLUP);
-}
-
-void sampleHallInputs() {
-  static uint32_t lastSample = 0;
-  const uint32_t now = millis();
-  if (uint32_t(now - lastSample) < SAMPLE_MS) return;
-  lastSample = now;
-
-  for (uint8_t i = 0; i < 8; ++i) {
-    const bool occupied = digitalRead(HALL_PINS[i]) == LOW;
-    SlotInput &s = inputs[i];
-    if (!s.initialized || occupied != s.candidateOccupied) {
-      s.candidateOccupied = occupied;
-      s.candidateSince = now;
-      s.initialized = true;
-      continue;
-    }
-    if (uint32_t(now - s.candidateSince) < STABLE_MS) continue;
-    // Initial stable readings reconcile with Firebase; they are not receipts.
-    if (!s.baselineReady || occupied != s.stableOccupied) {
-      s.baselineReady = true;
-      s.stableOccupied = occupied;
-      queueSlotSync(i + 1, occupied);
-    }
-  }
-}
-```
-
-Every slot enqueues one startup reconciliation after its first stable reading, including initially vacant slots. The cloud worker interprets that as reconciliation, not a new receipt. Unsigned subtraction handles millis() rollover. A reconnect should also schedule reconciliation even if no new sensor edge occurs.
-
-## 5. Direct cloud API and connector changes
-
-Existing target configuration:
-
-- Project: smart-warehouse-3171e
-- Region: asia-southeast1
-- Service: smart-warehouse-service
-- Connector: example
-
-REST base:
+- ESP32-S3 reads Hall sensors and reports **slot ID + occupied/vacant** only.
+- The phone scans products to assign/change their slot and retains explicit external-dispatch confirmation.
+- A product temporarily off-rack keeps its slot reserved. Its ID remains visible.
+- Slot assignments can change only when the affected slots are physically vacant.
+- Firebase automatically synchronizes product status and activity with sensor observations.
+- No versions, operation ledger, custom backend, local server, GPS, or new quantity/box model. Expiry remains a simple phone-date check for receiving/assignment.
 
 ```text
-https://firebasedataconnect.googleapis.com/v1/projects/smart-warehouse-3171e/locations/asia-southeast1/services/smart-warehouse-service/connectors/example
+Hall sensors → ESP32-S3 → Data Connect occupancy mutation → Slot + Stock + Activity
+Phone scan ────────────→ Data Connect assignment mutation → Slot
+Phone dispatch ────────→ Data Connect dispatch mutation ─→ Slot + Stock + Activity
+Dashboard Sync ────────→ read-only cloud queries
 ```
 
-Read with POST to `:executeQuery?key=FIREBASE_WEB_API_KEY` and write with POST to `:executeMutation?key=FIREBASE_WEB_API_KEY`. Set Content-Type: application/json; use the same Firebase app ID in `x-firebase-gmpid` as the configured public client where applicable.
+This replaces the old design where the ESP32 looks up product IDs and directly chooses TakeOffRack or ReturnProduct. It also replaces app buttons that pretend to confirm physical placement or return.
 
-This public-client request pattern matches the installed Firebase JavaScript SDK: the API key is appended as `key`; no database credentials are used. Test the exact public REST call against the deployed connector before embedding it in firmware. API-key restrictions or future Auth/App Check requirements can block a bare ESP32 client and must be accounted for. An API key is not an authorization secret; current operations are deliberately PUBLIC for the prototype.
+## 2. Minimal schema change
 
-Add one narrow `GetRackSlot($slotID: Int!)` query returning the exact slot's slotId, productID, assignedAt and joined stock productID/currentStatus. Compile its actual generated key syntax before deploying. Reuse existing `TakeOffRack` and `ReturnProduct` mutations instead of making the ESP32 execute arbitrary GraphQL/SQL.
+Keep existing StockStatus, ActivityType, Stock, and Activity definitions. Add only physical-state fields to Slot:
 
-Example removal request body, after looking up the binding:
-
-```json
-{
-  "operationName": "TakeOffRack",
-  "variables": {
-    "productID": "WH-PROD-005",
-    "sourceSlotID": 1
-  }
-}
+```graphql
+isOccupied: Boolean
+occupancyUpdatedAt: Timestamp
 ```
 
-Read request:
+These fields are nullable so existing/unreported slots are **Unknown**, not assumed empty. Use server request time for occupancyUpdatedAt. Do not add a redundant slot-status enum; derive the visible state from occupancy, assignment, and product status.
 
-```json
-{
-  "operationName": "GetRackSlot",
-  "variables": { "slotID": 1 }
-}
-```
+Keep Slot.productID, assignedAt, the unique product assignment constraint, and slot IDs 1–8. Existing assignedAt remains the binding timestamp, not the sensor-change time. Product IDs stay strings.
 
-An HTTP 200 is not sufficient: parse JSON and reject a response containing GraphQL `errors`. Check the expected data fields as well. Use finite connect/read timeouts, reconnect backoff, and useful serial messages without logging Wi-Fi secrets.
+A previously valid assumption changes: an EMPTY product may now be assigned to a vacant slot **awaiting its first placement**. Update UI validation and dashboard warnings; this is not corrupt data.
 
-### HTTPS request helper shape
+## 3. Meaning of the two kinds of status
 
-```cpp
-// Implementation outline; all values come from the ignored config header.
-// ArduinoJson API details must match the installed version.
-bool executeConnector(const char *method, const String &json,
-                      String &responseBody) {
-  WiFiClientSecure tls;
-  tls.setCACert(DATA_CONNECT_ROOT_CA);
-  HTTPClient http;
-  const String url = String(DATA_CONNECT_BASE) + ":" + method
-                   + "?key=" + FIREBASE_WEB_API_KEY;
-  if (!http.begin(tls, url)) return false;
-  http.setConnectTimeout(5000);
-  http.setTimeout(8000);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-firebase-gmpid", FIREBASE_APP_ID);
-  const int status = http.POST(json);
-  responseBody = status > 0 ? http.getString() : String();
-  http.end();
-  // Caller must parse responseBody and validate GraphQL data/errors.
-  return status >= 200 && status < 300;
-}
-```
+### Product status: Stock.currentStatus
 
-## 6. Removal: exact synchronization logic
-
-`syncSlot(slotID)` runs in the network worker:
-
-1. Confirm the input is still stably vacant before doing removal work.
-2. Query the current slot binding from Firebase. Never infer product identity from the magnet.
-3. If no product is assigned, log "vacant/unassigned" and do not write stock/activity.
-4. If the assigned product is OCCUPIED, capture its productID and assignedAt; call TakeOffRack with that product and slot.
-5. Existing transaction updates Stock OCCUPIED → PENDING_DISPATCH, updates statusUpdatedAt, checks the matching slot binding, and inserts exactly one OFF_RACK activity. Slot.productID and assignedAt remain populated. Warehouse inventory does not decrease.
-6. If already PENDING_DISPATCH with the same binding, acknowledge/reconcile; do not write another activity. An EMPTY product with a retained binding is inconsistent: stop and report it, not an automatic repair.
-7. Refresh Firebase after response failure/timeout. If it now shows the captured binding as PENDING_DISPATCH, treat the removal as synchronized. Otherwise retry only while that same binding remains and the physical sensor is still vacant.
-8. If the assignment changes, stop replaying that old task. Do not apply a saved removal to a different product or newly assigned slot.
-
-Existing status predicates prevent a duplicate TakeOffRack from creating a second OFF_RACK once status is PENDING_DISPATCH. This is simple state-based retry handling, not durable event-ID/exactly-once protection. Do not reintroduce version/ledger tables for this MVP.
-
-### Optional narrow mutation guard
-
-The lookup and current TakeOffRack call are separate requests. For a modest additional guard without new tables, consider adding an optional/required `expectedAssignedAt` argument to a hardware-specific removal operation, comparing it with the existing slot assignment timestamp and productID in the transaction. Update all relevant callers if changing the shared operation signature. This guards stale bindings, not every possible repeated removal cycle. Keep it optional scope for the first single-rack test, not a reason to block basic integration.
-
-## 7. Return and restart handling
-
-Removal-only synchronization would leave a returned box pending forever. Include this small reconciliation rule using existing data:
-
-- Stable occupied + same assigned product PENDING_DISPATCH → call ReturnProduct; it sets OCCUPIED and logs ON_RACK without adding inventory or changing the binding.
-- Stable occupied + assigned product OCCUPIED → no write.
-- Stable occupied + no assignment → log "occupied, unidentified"; do not invent a product or receipt.
-- A physical return is an observation, not a new expiry/receiving decision. The ESP32 does not evaluate expiry; it restores the reserved product's on-rack state. The phone still blocks new expired receiving.
-
-At startup, establish a stable baseline and read cloud slot states. Never count an occupied startup slot as a new receipt. Reconcile vacant/OCCUPIED as a pending removal and occupied/PENDING_DISPATCH as a return only under the prototype assumption that the existing binding still identifies that slot's object. Offline replacement by a different object cannot be detected by Hall sensors; expose that limitation and require staff correction, not invented identity.
-
-If a return happens before queued removal is sent, reconcile to current state instead of uploading stale vacancy. If removal already committed, send the matching return. While offline, keep pending work bounded (one current reconciliation per slot), resume after Wi-Fi recovers, and always reread cloud binding before retry. Small NVS persistence is optional; startup reconciliation is sufficient for the initial controlled demo. Do not write NVS every sensor sample.
-
-## 8. Phone coordination and MVP limits
-
-- Once hardware removal is enabled, remove/hide the normal manual Take off rack button or label it clearly as a test-only override; the sensor should drive that state transition.
-- Phone scan/slot assignment remains as currently implemented in this phase. Do not also count sensor placement as a second receipt.
-- On scan, foreground return, Refresh, and before dispatch confirmation, refresh Firebase so PENDING_DISPATCH reported by the rack is visible. A lightweight refresh interval while the result screen is open may improve the demo; no permanent background polling is needed.
-- Dispatch is still explicit phone confirmation. It sets EMPTY, clears both slot assignment fields, and logs DISPATCHED. ESP32 never dispatches automatically.
-- ReturnProduct from the sensor invalidates pending status, so normal dispatch is rejected if the return was synchronized first.
-- This remains a best-effort prototype handshake: without a stored occupancy/pending-event identity, the current schema cannot prove that the item is still physically absent at confirmation or prevent every delayed-cycle race. Offline ESP32/phone communication is not a full double-check. Do not claim that guarantee. No new occupancy schema is required for this initial removal demo; propose it separately if stronger verification is requested.
-- Firmware must not decide expiry, write REMOVED, clear assignments on temporary removal, or delete products.
-
-## 9. Implementation order and test checklist
-
-1. Confirm exact board/module reliability and polarity; read GPIOs over serial with Wi-Fi disabled. Do not test cloud logic until all eight sensor readings are correct.
-2. Implement independent debounce/baseline logic and test simultaneous changes and short bumps.
-3. Deploy the narrow slot query and verify direct HTTPS calls against an isolated Firebase fixture using the actual public client configuration.
-4. Implement network worker, state reconciliation, finite timeouts/backoff, and response parsing; first integrate one slot, then all eight.
-5. Coordinate phone action visibility/refresh and verify an end-to-end rack removal followed by phone-confirmed dispatch.
-
-Expected tests:
-
-| Test | Expected Firebase result |
+| Value | Meaning |
 |---|---|
-| Bound OCCUPIED product lifted for >300 ms | PENDING_DISPATCH + one OFF_RACK; binding retained |
-| Repeated vacant readings | No additional changes/history |
-| Magnet bump shorter than stability interval | No transition |
-| Two slots lifted | Correct per-slot products updated independently |
-| Empty unassigned slot | No inventory writes |
-| Returned before dispatch | OCCUPIED + ON_RACK; same binding/assignedAt |
-| Phone confirms dispatch after removal | EMPTY + DISPATCHED; both assignment fields null |
-| ESP32 restart while product remains stored | No new receipt/ON_RACK event |
-| Wi-Fi drops before request | Sample continues; retry/reconcile after reconnect |
-| Response lost after cloud commit | Refresh sees PENDING_DISPATCH; no second OFF_RACK |
-| Binding changes while offline | Old task discarded; do not remove new product |
-| Object placed in unassigned slot | Unidentified warning, no fabricated receipt |
+| EMPTY | Not counted in the warehouse. May be unassigned, awaiting first placement, or already dispatched. |
+| OCCUPIED | Assigned product is recorded as on the rack. Counts as one warehouse unit. |
+| PENDING_DISPATCH | Product was removed from its assigned slot but has not been dispatched. Still counts as one warehouse unit. |
 
-Inspect stocks.current_status/status_updated_at, slots.assigned_product_id/assigned_at, and activities.activity_type/occurred_at after each step through Firebase queries. Capture startup/raw/stable/cloud logs. Compile for the actual S3 board and report hardware tests separately from emulator tests.
+### Physical slot state: Slot.isOccupied
 
-## 10. Deliverables and decisions
+| Value | Meaning |
+|---|---|
+| true | Hall sensor reports stable presence. Identity comes from assignment, not the sensor. |
+| false | Hall sensor reports stable vacancy. It may still be assigned/reserved. |
+| null | No occupancy report yet; unavailable for assignment/dispatch. |
 
-Planned files: ESP32 sketch or PlatformIO equivalent, ignored config header plus example, testable debounce/reconciliation modules, README flashing/setup steps, and the narrow Firebase query. This document contains starter code only; no firmware or cloud change is implemented by writing the plan.
+### Slot menu labels
 
-Before selecting final firmware settings, confirm the exact ESP32-S3 board and whether the fitted Hall modules switch reliably at the documented 3.3 V. Confirm a loaded platform really produces LOW. These are hardware facts, not reasons to add unrelated UI, auth, or timezone scope.
+| Sensor + assignment + product | Label | Can another product take this slot? |
+|---|---|---|
+| Vacant + no assignment | Available (green) | Yes |
+| Vacant + assigned EMPTY | Awaiting placement | No |
+| Occupied + assigned OCCUPIED | Occupied (gray), show product ID | No |
+| Vacant + assigned PENDING_DISPATCH | Off-rack / reserved, show product ID | No |
+| Occupied + no assignment | Occupied / unidentified | No |
+| Unknown or stale observation | Unknown / awaiting rack update | No |
 
-Reference: https://firebase.google.com/docs/reference/data-connect/rest/v1/projects.locations.services.connectors/executeMutation . The installed Firebase JavaScript SDK was also inspected for its public-client REST endpoint, API-key query parameter, and app-ID header. Real hardware and deployed REST access remain to be tested.
+Unexpected combinations should refresh and show a warning rather than silently unbind or count stock. A temporarily inconsistent cross-table query is not a reason to fabricate a repair.
+
+## 4. Receiving and first placement
+
+1. Scan a known product. Use the phone's date for expiry: expired/unknown expiry blocks receiving assignment.
+2. Read current slot observations and assignments from Firebase.
+3. Select a physically vacant, unassigned slot. Unknown or occupied slots cannot be selected.
+4. Confirm assignment. The cloud rechecks vacancy and lack of assignment, binds the product, and sets assignedAt.
+5. **Keep Stock.currentStatus=EMPTY. No ON_RACK activity and no inventory increase yet.** The screen says Awaiting placement.
+6. Staff physically place the product. The ESP32 reports stable occupied.
+7. Firebase resolves the assigned product and atomically sets OCCUPIED, updates statusUpdatedAt, records ON_RACK, and saves the slot observation.
+
+The first physical placement adds one warehouse unit. Repeated occupied reports do not add units or duplicate activities. Canceling an EMPTY awaiting-placement assignment is allowed only while the slot is vacant; clear its binding/time without pretending inventory departed.
+
+Sensors cannot verify product identity. Staff must place the scanned product into its assigned slot.
+
+## 5. Automatic sensor transitions
+
+Create one predefined Data Connect mutation, provisionally named:
+
+```text
+ReportSlotOccupancy(slotID: Int!, occupied: Boolean!)
+```
+
+The ESP32 supplies no product ID, activity type, or next product status. Firebase resolves these from the stored assignment and current product status **inside the operation**.
+
+| Observed state | Assigned product status | Cloud stock change | Activity | Binding |
+|---|---|---|---|---|
+| Occupied | EMPTY | OCCUPIED | ON_RACK | Keep |
+| Vacant | OCCUPIED | PENDING_DISPATCH | OFF_RACK | Keep |
+| Occupied | PENDING_DISPATCH | OCCUPIED | ON_RACK | Keep |
+| Occupied | OCCUPIED | No change | None | Keep |
+| Vacant | PENDING_DISPATCH | No change | None | Keep |
+| Vacant | EMPTY | No change; awaiting placement | None | Keep |
+| Either | No assigned product | No product change | None | None |
+
+Persist isOccupied and occupancyUpdatedAt even when no product is assigned. Record no product activity for unidentified objects.
+
+Use the **product state**, not merely whether the boolean changed, to decide transitions. Example: an object was observed occupied while unassigned, then assignment is later validly created after vacancy; the next placement must still reconcile the assigned product correctly. Periodic same-state reporting should recover missed connectivity, not duplicate history.
+
+Each accepted product transition and its activity must commit with the slot observation in one transaction. Use conditional status and assignment predicates, check affected rows, and preserve uniqueness. Refresh/abort on changed assignment instead of changing the wrong product. Verify the actual Data Connect server-side expressions/conditional facilities with compiler and emulator; do not implement this as three independent client requests or add a laptop backend. Conditional/no-op paths must be tested as well as transitions.
+
+The slot observation is the fact; the product status is its interpretation through the assignment. Sensor observations do not perform expiry rejection: an expired product physically returned still restores its recorded on-rack state. Receiving eligibility remains the phone's responsibility.
+
+## 6. Temporary take-off and return
+
+- Lift a product: stable vacancy automatically changes OCCUPIED → PENDING_DISPATCH and logs OFF_RACK.
+- Keep Slot.productID and assignedAt populated. The slot remains unavailable to other products, and warehouse stock does not decrease.
+- Put the same product back: stable presence automatically changes PENDING_DISPATCH → OCCUPIED and logs ON_RACK. Keep assignedAt unchanged and do not increase warehouse stock.
+- The app no longer has normal manual Take off rack or Return buttons that can contradict the sensor. Return does not require another barcode scan.
+
+## 7. Changing assignments: vacant only
+
+A vacant slot is not necessarily available. Reserved slots cannot be given to a different product merely because the object is off-rack.
+
+### Move the same assigned product to another slot
+
+1. Lift it and wait until Firebase reports source vacant + PENDING_DISPATCH.
+2. Scan it and select an unassigned, physically vacant target.
+3. Cloud transaction verifies both source and target are vacant and assignment still matches.
+4. Clear source productID AND assignedAt; assign target and set its assignedAt. Preserve both sensors' occupancy observations.
+5. Keep product PENDING_DISPATCH. Selecting a new slot is not placement and must not log ON_RACK or change warehouse stock.
+6. Physical placement in the new slot triggers OCCUPIED + ON_RACK through ReportSlotOccupancy.
+
+An EMPTY awaiting-placement assignment can similarly be moved between vacant slots without adding inventory. Changing an occupied source or target is rejected. Another product cannot replace a pending product until that product is dispatched or moved to its own valid target. Never overwrite an assignment just to make a button selectable.
+
+The app should clearly distinguish “assignment saved” from “product detected on rack.” Same-slot assignment is a no-op.
+
+## 8. Dispatch keeps its current meaning
+
+Staff still scan and explicitly confirm **Remove Product / external dispatch**.
+
+Cloud checks:
+
+- Matching product assignment.
+- Product PENDING_DISPATCH.
+- Source slot has a known, recent vacant observation.
+
+Then atomically:
+
+- Stock.currentStatus → EMPTY and statusUpdatedAt → request time.
+- Clear Slot.productID **and** assignedAt.
+- Insert DISPATCHED.
+- **Keep Slot.isOccupied=false and its observation timestamp**; dispatch does not fabricate a sensor reading.
+
+Warehouse stock decreases by one. The empty unassigned slot becomes available. Product/history records are not deleted.
+
+A synchronized physical return changes the slot to occupied and the product to OCCUPIED, so dispatch is rejected. The simplified schema still cannot prevent every return occurring after the last cloud report or every repeated removal-cycle race. Do not claim an atomic physical dispatch interlock; keep the existing MVP's limitation explicit, without adding the previously rejected version/ledger machinery.
+
+REMOVED remains expired-scan rejection: log it according to the current app policy, with no assignment/status/occupancy change. It is not physical disposal.
+
+## 9. ESP32-S3 changes
+
+Keep the single-file esp32.ino and editable settings at the top. Preserve GPIOs 4, 5, 6, 7, 15, 16, 17, 18, active-low configuration, 20 ms sampling, 300 ms debounce, Wi-Fi, TLS, and nonblocking sampling/network worker.
+
+Replace product lookup + TakeOffRack/ReturnProduct selection with:
+
+1. Establish each slot's first stable reading.
+2. POST ReportSlotOccupancy with slot ID and boolean.
+3. Send again on stable change; periodically report unchanged stable states as a simple heartbeat/reconciliation, for example every 5 seconds.
+4. After reconnect, resend current stable states. Do not replay an offline backlog of old edges.
+5. If a reading changes during a slow request, schedule the newest stable observation next. Never stop sensor sampling during HTTPS.
+6. Parse HTTP/GraphQL errors and print the slot, reading, request outcome, and returned product interpretation. Do not print secrets.
+
+The firmware no longer needs GetSlotMenu or knows the barcode to report presence. Repeated observation requests must not create repeated activities. Initial reporting reconciles existing cloud states: an already OCCUPIED occupied product stays unchanged, while an EMPTY assigned product detected present is its first receipt.
+
+## 10. Observation freshness
+
+Use occupancyUpdatedAt to avoid treating a disconnected rack's last state as current. Choose a simple documented threshold compatible with 5-second reporting, initially 30 seconds, and tune after testing all eight HTTPS reports. Show stale slots as Unknown and disable new assignment/dispatch until refreshed.
+
+Use server timestamps for records; no GPS or extra timezone service. Where practical enforce freshness in the cloud command; the phone display alone is not authority. If an eight-slot reporting cycle routinely exceeds the threshold, increase the interval/threshold or add a small batch occupancy report rather than producing constant false offline alerts. Batch reporting is optional optimization, not required for first-slot integration.
+
+## 11. App, dashboard, and connector updates
+
+- Add occupancy fields to GetLocationSnapshot, GetSlotMenu, and dashboard slot queries; regenerate SDK output where used.
+- Update snapshot validation to allow EMPTY + assigned vacant as Awaiting placement. Include occupancy/freshness in slot availability; null productID alone no longer means available.
+- Replace PlaceProduct/MoveProduct's immediate stock transitions with assignment-only operations. Names such as AssignProductToSlot and ChangeAssignedSlot make their meaning clearer; migrate callers/deployed operations together.
+- Disable/remove manual physical take-off and return commands from the normal phone workflow. Keep explicit dispatch and expired rejection.
+- Refresh the phone while showing the slot screen, after foreground return, and before confirming actions. Do not require a second scan for sensor transitions.
+- Dashboard remains manual Sync. Add sensor state and observation timestamp, show vacant/reserved separately from available, and retain warehouse count OCCUPIED + PENDING_DISPATCH.
+- PUBLIC prototype operations remain publicly callable. Document this; no user authentication expansion in this milestone.
+
+## 12. Migration and implementation order
+
+1. Add nullable Slot.isOccupied and occupancyUpdatedAt; preserve all existing assignments, enums, records, and constraints. Do not initialize every slot to vacant.
+2. Implement ReportSlotOccupancy and its transition/no-op paths first, with emulator tests. Implement assignment-only and vacancy-aware dispatch operations.
+3. Update query contracts, UI validation/buttons, dashboard parsing, and their tests together.
+4. Simplify esp32.ino to report only occupancy. Test one slot, then all eight, with current build/debounce tests preserved.
+5. Review actual Firebase SQL diff, apply only the additive migration, and deploy the coordinated connector. No local schema edit alone updates Firebase.
+6. Start firmware reporting to establish real observations, then test app assignments. Preserve existing OCCUPIED states on matched startup readings; investigate inconsistent fixtures explicitly.
+7. Update README and scan-test guide with new meanings. Mark older immediate-placement plans superseded; do not leave two contradictory active write paths.
+
+## 13. Acceptance tests
+
+- Unreported slot: Unknown, never green.
+- Vacant unassigned slot: available. Assign valid EMPTY product: awaiting placement, stock unchanged, no ON_RACK yet.
+- Physical placement: isOccupied=true, OCCUPIED, exactly one ON_RACK.
+- Lift: isOccupied=false, PENDING_DISPATCH, one OFF_RACK, same productID/assignedAt, warehouse total unchanged.
+- Return without scanning: isOccupied=true, OCCUPIED, one ON_RACK, warehouse total unchanged.
+- Duplicate stable reports: occupancy heartbeat may update; no additional stock transitions/activities.
+- Occupied source/target: changing assignment rejected. Vacant reserved source: unavailable to another product.
+- Change own pending assignment to vacant target: source clears, target binds, status remains pending until real placement.
+- Dispatch while vacant/pending: EMPTY, binding/time cleared, one DISPATCHED, observation retained, warehouse −1.
+- Dispatch after synchronized return: rejected, no partial writes.
+- Occupied unassigned slot: unidentified, no product or receipt invented.
+- Restart with occupied stored items: no duplicate receipts. Wi-Fi recovery reports latest state, not stale edge history.
+- Any activity/assignment/status write failure rolls back the full transition.
+- Expired scan: REMOVED log only; no automatic stock or slot cleanup.
+- Phone and ESP32 work directly with deployed Firebase without a laptop service. Dashboard updates only when Sync is clicked.
+
+This document is the plan only; no schema, firmware, app, dashboard, or cloud changes are applied by writing it.
