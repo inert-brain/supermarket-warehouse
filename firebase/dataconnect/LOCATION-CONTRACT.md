@@ -41,6 +41,7 @@ never interpret a partial/error response as success.
 
 | Operation | GraphQL variables | Successful `data` |
 |---|---|---|
+| `RegisterScannedProduct` | `$productID: String!` | `{registration: 1}` inserted, or `{registration: 0}` already exists |
 | `ReportSlotOccupancy` | `$slotID: Int!, $occupied: Boolean!` | `{observation: 1, query: {slot: SlotObservation}}` |
 | `AssignProductToSlot` | `$productID: String!, $targetSlotID: Int!` | `{binding: 1}` |
 | `ChangeAssignedSlot` | `$productID: String!, $sourceSlotID: Int!, $targetSlotID: Int!` | `{binding: 1}` |
@@ -66,6 +67,27 @@ an additional client request. `observation=1` means a slot report was accepted,
 not that a product transition occurred. `_execute` SDK counts are generated as
 optional `number | null`; runtime success is checked to equal 1. Nullable SDK
 fields may be optional in TypeScript even though runtime JSON includes nulls.
+
+### RegisterScannedProduct
+
+Public, unauthenticated MVP registration accepts any nonblank exact string ID,
+including leading zeros, surrounding whitespace on a nonblank ID, Unicode, and
+non-barcode characters. It does not trim, normalize, parse numbers, or look up a
+catalog. Empty or ASCII whitespace-only IDs fail `INVALID_PRODUCT_ID` and roll
+back; the guard uses CEL/RE2 `[^[:space:]]` (ASCII whitespace classification).
+Missing/null/non-string input is rejected by GraphQL's required `String!` type.
+
+A single parameterized `INSERT ... ON CONFLICT (product_id) DO NOTHING` inserts
+only an unknown stock: `currentStatus=EMPTY`, `statusUpdatedAt=request.time`,
+`description=null`, `expiresOn=null`. Any existing ID returns 0 without updating
+any field, including status, status time, description, or expiry. Neither path
+writes slots or activities. There is no readback inside this mutation.
+
+The exact successful `data` shape is `{registration: 0 | 1}`; generated SDK type
+is `{registration?: number | null}`. The count indicates insertion, not receipt,
+assignment, or quantity. Call `GetStockByProductID({productID})` afterward with
+server-only fetching; it returns nullable `stock {productID, description,
+expiresOn}`, not status/time. Other read operations expose status/time.
 
 ### ReportSlotOccupancy
 
@@ -185,6 +207,7 @@ From `firebase/dataconnect/`, using existing installed dependencies only:
 ~/.cache/firebase/emulators/dataconnect-emulator-3.4.25 build -config_dir .
 ~/.cache/firebase/emulators/dataconnect-emulator-3.4.25 sdk generate -config_dir .
 node check-generated-sdk.cjs
+XDG_CONFIG_HOME=/tmp/warehouse-firebase-config CI=true NODE_PATH=../../app/UI/node_modules LOCATION_TEST_DISPOSABLE=yes firebase emulators:exec --only dataconnect --project demo-warehouse --config emulator-tests.firebase.json 'node emulator-mutations.test.cjs --registration-only'
 XDG_CONFIG_HOME=/tmp/warehouse-firebase-config CI=true NODE_PATH=../../app/UI/node_modules LOCATION_TEST_DISPOSABLE=yes firebase emulators:exec --only dataconnect --project demo-warehouse --config emulator-tests.firebase.json 'node emulator-mutations.test.cjs'
 XDG_CONFIG_HOME=/tmp/warehouse-firebase-config CI=true DASHBOARD_TEST_DISPOSABLE=yes firebase emulators:exec --only dataconnect --project demo-warehouse --config emulator-tests.firebase.json 'node emulator-dashboard.test.cjs'
 node check-generated-sdk.cjs
@@ -192,7 +215,11 @@ node check-generated-sdk.cjs
 
 No `dataDir` or database override: tests require empty disposable in-memory
 PGlite tables and explicit opt-in, never saved `.dataconnect` or cloud data.
-Mutation tests use the real generated SDK, covering transitions/no-ops,
+Mutation tests use the real generated SDK. `--registration-only` runs the focused
+registration checks (exact arbitrary/leading-zero IDs, request-time insertion,
+null metadata, repeats, metadata/expiry/old-time preservation across every status,
+assigned existing stock, blank rollback, readback and no slot/activity writes).
+The full suite also covers transitions/no-ops,
 unknown/unidentified observations, null/false occupancy with absent/old/future
 timestamps, awaiting placement, status-preserving EMPTY/OCCUPIED/PENDING moves,
 same-slot no-ops, known-occupied blocking, missing/malformed/reserved slots,

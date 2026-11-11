@@ -55,7 +55,7 @@ export function validateSnapshot(snapshot: Snapshot, productID: string): Snapsho
 export function actionForSlot(snapshot: Snapshot, slotId: number): Action | null {
   const { product, slots } = validateSnapshot(snapshot, snapshot.product.productID);
   const target = slots.find(item => item.slotId === slotId);
-  if (!target || product.expiry !== 'valid' || slotState(target) !== 'available') return null;
+  if (!target || product.expiry === 'expired' || slotState(target) !== 'available') return null;
   const source = slots.find(item => item.productID === product.productID);
   if (!source) return 'AssignProductToSlot';
   return source.isOccupied !== true ? 'ChangeAssignedSlot' : null;
@@ -64,7 +64,7 @@ export function actionForSlot(snapshot: Snapshot, slotId: number): Action | null
 export function canDispatch(snapshot: Snapshot): boolean {
   const { product, slots } = validateSnapshot(snapshot, snapshot.product.productID);
   const source = slots.find(slot => slot.productID === product.productID);
-  return product.expiry === 'valid' && !!source && source.isOccupied !== true;
+  return product.expiry !== 'expired' && !!source && source.isOccupied !== true;
 }
 
 export function makeCommand(snapshot: Snapshot, action: Action, targetId?: number): Command {

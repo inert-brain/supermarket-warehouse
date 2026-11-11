@@ -17,6 +17,7 @@ This README will guide you through the process of using the generated JavaScript
   - [*DashboardActivities*](#dashboardactivities)
   - [*GetStockByProductID*](#getstockbyproductid)
 - [**Mutations**](#mutations)
+  - [*RegisterScannedProduct*](#registerscannedproduct)
   - [*ReportSlotOccupancy*](#reportslotoccupancy)
   - [*AssignProductToSlot*](#assignproducttoslot)
   - [*ChangeAssignedSlot*](#changeassignedslot)
@@ -996,6 +997,115 @@ The following is true for both the action shortcut function and the `MutationRef
 - Both functions can be called with or without passing in a `DataConnect` instance as an argument. If no `DataConnect` argument is passed in, then the generated SDK will call `getDataConnect(connectorConfig)` behind the scenes for you.
 
 Below are examples of how to use the `example` connector's generated functions to execute each mutation. You can also follow the examples from the [Data Connect documentation](https://firebase.google.com/docs/data-connect/web-sdk#using-mutations).
+
+## RegisterScannedProduct
+You can execute the `RegisterScannedProduct` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):
+```typescript
+registerScannedProduct(vars: RegisterScannedProductVariables): MutationPromise<RegisterScannedProductData, RegisterScannedProductVariables>;
+
+interface RegisterScannedProductRef {
+  ...
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: RegisterScannedProductVariables): MutationRef<RegisterScannedProductData, RegisterScannedProductVariables>;
+}
+export const registerScannedProductRef: RegisterScannedProductRef;
+```
+You can also pass in a `DataConnect` instance to the action shortcut function or `MutationRef` function.
+```typescript
+registerScannedProduct(dc: DataConnect, vars: RegisterScannedProductVariables): MutationPromise<RegisterScannedProductData, RegisterScannedProductVariables>;
+
+interface RegisterScannedProductRef {
+  ...
+  (dc: DataConnect, vars: RegisterScannedProductVariables): MutationRef<RegisterScannedProductData, RegisterScannedProductVariables>;
+}
+export const registerScannedProductRef: RegisterScannedProductRef;
+```
+
+If you need the name of the operation without creating a ref, you can retrieve the operation name by calling the `operationName` property on the registerScannedProductRef:
+```typescript
+const name = registerScannedProductRef.operationName;
+console.log(name);
+```
+
+### Variables
+The `RegisterScannedProduct` mutation requires an argument of type `RegisterScannedProductVariables`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+
+```typescript
+export interface RegisterScannedProductVariables {
+  productID: string;
+}
+```
+### Return Type
+Recall that executing the `RegisterScannedProduct` mutation returns a `MutationPromise` that resolves to an object with a `data` property.
+
+The `data` property is an object of type `RegisterScannedProductData`, which is defined in [generated/index.d.ts](./index.d.ts). It has the following fields:
+```typescript
+export interface RegisterScannedProductData {
+  registration?: number | null;
+}
+```
+### Using `RegisterScannedProduct`'s action shortcut function
+
+```typescript
+import { getDataConnect } from 'firebase/data-connect';
+import { connectorConfig, registerScannedProduct, RegisterScannedProductVariables } from '@dataconnect/example';
+
+// The `RegisterScannedProduct` mutation requires an argument of type `RegisterScannedProductVariables`:
+const registerScannedProductVars: RegisterScannedProductVariables = {
+  productID: ...,
+};
+
+// Call the `registerScannedProduct()` function to execute the mutation.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await registerScannedProduct(registerScannedProductVars);
+// Variables can be defined inline as well.
+const { data } = await registerScannedProduct({ productID: ..., });
+
+// You can also pass in a `DataConnect` instance to the action shortcut function.
+const dataConnect = getDataConnect(connectorConfig);
+const { data } = await registerScannedProduct(dataConnect, registerScannedProductVars);
+
+console.log(data.registration);
+
+// Or, you can use the `Promise` API.
+registerScannedProduct(registerScannedProductVars).then((response) => {
+  const data = response.data;
+  console.log(data.registration);
+});
+```
+
+### Using `RegisterScannedProduct`'s `MutationRef` function
+
+```typescript
+import { getDataConnect, executeMutation } from 'firebase/data-connect';
+import { connectorConfig, registerScannedProductRef, RegisterScannedProductVariables } from '@dataconnect/example';
+
+// The `RegisterScannedProduct` mutation requires an argument of type `RegisterScannedProductVariables`:
+const registerScannedProductVars: RegisterScannedProductVariables = {
+  productID: ...,
+};
+
+// Call the `registerScannedProductRef()` function to get a reference to the mutation.
+const ref = registerScannedProductRef(registerScannedProductVars);
+// Variables can be defined inline as well.
+const ref = registerScannedProductRef({ productID: ..., });
+
+// You can also pass in a `DataConnect` instance to the `MutationRef` function.
+const dataConnect = getDataConnect(connectorConfig);
+const ref = registerScannedProductRef(dataConnect, registerScannedProductVars);
+
+// Call `executeMutation()` on the reference to execute the mutation.
+// You can use the `await` keyword to wait for the promise to resolve.
+const { data } = await executeMutation(ref);
+
+console.log(data.registration);
+
+// Or, you can use the `Promise` API.
+executeMutation(ref).then((response) => {
+  const data = response.data;
+  console.log(data.registration);
+});
+```
 
 ## ReportSlotOccupancy
 You can execute the `ReportSlotOccupancy` mutation using the following action shortcut function, or by calling `executeMutation()` after calling the following `MutationRef` function, both of which are defined in [generated/index.d.ts](./index.d.ts):

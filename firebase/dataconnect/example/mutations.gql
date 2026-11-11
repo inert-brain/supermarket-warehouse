@@ -1,5 +1,24 @@
 # PUBLIC prototype only. Values are SQL parameters; slot locks serialize all writers.
 # Every failed row-count check or constraint rolls back the whole transaction.
+mutation RegisterScannedProduct($productID: String!)
+@auth(
+    level: PUBLIC
+    insecureReason: "Unauthenticated scan registration is intentionally allowed for the isolated prototype."
+)
+@transaction {
+    registration: _execute(
+        sql: """
+        INSERT INTO stocks (product_id, current_status, status_updated_at, description, expires_on)
+        VALUES ($1::text, 'EMPTY'::stock_status, $2::timestamptz, NULL, NULL)
+        ON CONFLICT (product_id) DO NOTHING
+        """
+        params: [{ _expr: "vars.productID" }, { _expr: "request.time" }]
+    )
+        @check(
+            expr: "vars.productID.matches('[^[:space:]]')"
+            message: "INVALID_PRODUCT_ID"
+        )
+}
 mutation ReportSlotOccupancy($slotID: Int!, $occupied: Boolean!)
 @auth(
     level: PUBLIC

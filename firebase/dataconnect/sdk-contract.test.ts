@@ -1,6 +1,7 @@
 // Compile-time checks against real generated declarations, not handwritten SDK types.
 import type { DataConnect } from 'firebase/data-connect';
 import {
+  registerScannedProduct, type RegisterScannedProductVariables, type RegisterScannedProductData,
   reportSlotOccupancy, assignProductToSlot, changeAssignedSlot, dispatchProduct,
   recordExpiredScan, getLocationSnapshot, getProductContext, getSlotMenu, getSlotBindings,
   type ReportSlotOccupancyVariables, type AssignProductToSlotVariables,
@@ -12,6 +13,8 @@ import {
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 type Assert<T extends true> = T;
+type RegistrationInput = Assert<Equal<RegisterScannedProductVariables, { productID: string }>>;
+type RegistrationResult = Assert<Equal<RegisterScannedProductData, { registration?: number | null }>>;
 type ReportInput = Assert<Equal<ReportSlotOccupancyVariables, { slotID: number; occupied: boolean }>>;
 type AssignInput = Assert<Equal<AssignProductToSlotVariables, { productID: string; targetSlotID: number }>>;
 type ChangeInput = Assert<Equal<ChangeAssignedSlotVariables, { productID: string; sourceSlotID: number; targetSlotID: number }>>;
@@ -27,6 +30,11 @@ type SensorStatus = Assert<Equal<NonNullable<ReportSlot['stock']>['currentStatus
 type StockStatuses = Assert<Equal<`${StockStatus}`, 'EMPTY' | 'OCCUPIED' | 'PENDING_DISPATCH'>>;
 
 async function contracts(dc: DataConnect) {
+  const registration = await registerScannedProduct(dc, { productID: '000001' });
+  const registered: number | null | undefined = registration.data.registration;
+  // @ts-expect-error Registration preserves string IDs, including leading zeros.
+  await registerScannedProduct(dc, { productID: 1 });
+  void registered;
   const report = await reportSlotOccupancy(dc, { slotID: 1, occupied: true });
   const count: number | null | undefined = report.data.observation;
   const occupied: boolean | null | undefined = report.data.query?.slot?.isOccupied;

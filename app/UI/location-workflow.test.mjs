@@ -131,8 +131,8 @@ test('a product bound to known occupied Slot 3 has no picker or location action 
 });
 
 test('false/null bound and unassigned OCCUPIED stock show picker; reservations and occupied targets stay disabled', async () => {
-  for (const isOccupied of [false, null]) for (const assigned of [false, true]) {
-    const value = fixture(); value.product.status = 'OCCUPIED';
+  for (const expiry of ['valid', 'unknown']) for (const isOccupied of [false, null]) for (const assigned of [false, true]) {
+    const value = fixture(); value.product.status = 'OCCUPIED'; value.product.expiry = expiry;
     value.slots.forEach(slot => { slot.occupancyUpdatedAt = '2000-01-01T00:00:00Z'; slot.isOccupied = null; });
     if (assigned) Object.assign(value.slots[2], { productID: '001', assignedAt: 'now', status: 'OCCUPIED', isOccupied });
     Object.assign(value.slots[3], { productID: 'other', assignedAt: 'now', status: 'OCCUPIED', isOccupied: false });
@@ -148,6 +148,7 @@ test('false/null bound and unassigned OCCUPIED stock show picker; reservations a
     assert.equal(ui.buttons().find(button => button.props.title.startsWith('Remove Product')).props.disabled, !dispatchReady);
     if (assigned) assert.match(ui.text(), isOccupied === null ? /Occupancy unknown/ : /Off rack/);
     ui.slots()[0].props.onPress(); await ui.flush();
+    assert.equal(ui.alerts[0][1].includes('Warning: expiry'), expiry === 'unknown');
     ui.alerts[0][2][1].onPress(); await ui.flush();
     assert.equal(ui.sent.length, 1);
     assert.equal(ui.sent[0].action, assigned ? 'ChangeAssignedSlot' : 'AssignProductToSlot');
@@ -158,8 +159,8 @@ test('false/null bound and unassigned OCCUPIED stock show picker; reservations a
 });
 
 test('all stock statuses allow vacant or unknown dispatch and remain explicitly confirmed', async () => {
-  for (const status of ['EMPTY', 'OCCUPIED', 'PENDING_DISPATCH']) for (const isOccupied of [false, null]) {
-    const value = fixture(); value.product.status = status;
+  for (const expiry of ['valid', 'unknown']) for (const status of ['EMPTY', 'OCCUPIED', 'PENDING_DISPATCH']) for (const isOccupied of [false, null]) {
+    const value = fixture(); value.product.status = status; value.product.expiry = expiry;
     Object.assign(value.slots[2], { productID: '001', assignedAt: 'now', status, isOccupied, occupancyUpdatedAt: '2000-01-01T00:00:00Z' });
     const ui = screen(value); await ui.flush();
     const dispatch = ui.buttons().find(button => button.props.title.startsWith('Remove Product'));
@@ -167,6 +168,7 @@ test('all stock statuses allow vacant or unknown dispatch and remain explicitly 
     assert.equal(ui.sent.length, 0);
     dispatch.props.onPress(); await ui.flush();
     assert.match(ui.alerts[0][1], /left the warehouse/);
+        assert.equal(ui.alerts[0][1].includes('Warning: expiry'), expiry === 'unknown');
     assert.equal(ui.sent.length, 0);
     ui.alerts[0][2][1].onPress(); ui.alerts[0][2][1].onPress(); await ui.flush();
     assert.equal(ui.sent.length, 1);
@@ -193,8 +195,8 @@ test('unknown product, missing slot and failed read show retry without inventing
   }
 });
 
-test('expired or unknown expiry cannot assign or dispatch with relaxed occupancy', async () => {
-  for (const expiry of ['expired', 'unknown']) {
+test('expired expiry cannot assign or dispatch with relaxed occupancy', async () => {
+  for (const expiry of ['expired']) {
     const value = fixture(); value.product.expiry = expiry;
     Object.assign(value.slots[0], { productID: '001', assignedAt: 'now', status: 'EMPTY', isOccupied: false });
     const ui = screen(value); await ui.flush();

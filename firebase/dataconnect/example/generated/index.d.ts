@@ -183,6 +183,14 @@ export interface RecordExpiredScanVariables {
   sourceSlotID?: number | null;
 }
 
+export interface RegisterScannedProductData {
+  registration?: number | null;
+}
+
+export interface RegisterScannedProductVariables {
+  productID: string;
+}
+
 export interface ReportSlotOccupancyData {
   observation?: number | null;
   query?: {
@@ -215,6 +223,18 @@ export interface Stock_Key {
   productID: string;
   __typename?: 'Stock_Key';
 }
+
+interface RegisterScannedProductRef {
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: RegisterScannedProductVariables): MutationRef<RegisterScannedProductData, RegisterScannedProductVariables>;
+  /* Allow users to pass in custom DataConnect instances */
+  (dc: DataConnect, vars: RegisterScannedProductVariables): MutationRef<RegisterScannedProductData, RegisterScannedProductVariables>;
+  operationName: string;
+}
+export const registerScannedProductRef: RegisterScannedProductRef;
+
+export function registerScannedProduct(vars: RegisterScannedProductVariables): MutationPromise<RegisterScannedProductData, RegisterScannedProductVariables>;
+export function registerScannedProduct(dc: DataConnect, vars: RegisterScannedProductVariables): MutationPromise<RegisterScannedProductData, RegisterScannedProductVariables>;
 
 interface ReportSlotOccupancyRef {
   /* Allow users to create refs without passing in DataConnect */

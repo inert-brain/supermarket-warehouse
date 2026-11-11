@@ -36,7 +36,21 @@ npm run lint
 npx expo start
 ```
 
-The scanner uses Code 128 and sends the scanned string verbatim as `productID`, including spaces and leading zeros; there is no separate barcode mapping. Confirm that this matches the seeded records. Lookups require connectivity; a missing product, invalid response, unavailable service or timeout does not yield acceptance. Scan again or retry as appropriate. A timeout or new scan stops waiting for the previous query but cannot cancel the underlying Data Connect request.
+The scanner enables Code 128, EAN-13, EAN-8, UPC-A, UPC-E and Code 39 using the [Expo SDK 58 Camera barcode types](https://docs.expo.dev/versions/v58.0.0/sdk/camera/#barcodetype). It sends the camera's returned string verbatim as `productID`, including spaces and leading zeros; there is no trimming, numeric conversion, UPC/EAN normalization or separate barcode mapping. Native barcode decoding/representation can differ across platforms; verify actual Android/iOS retail labels against the intended product IDs.
+
+### Missing-product registration
+
+The UI requires the separately supplied connector mutation `RegisterScannedProduct($productID: String!)`, returning `{ registration: 0 | 1 }`. Its contract is **insert on conflict do nothing**, with a new stock row using the exact ID, `description: null`, `expiresOn: null`, and `status: EMPTY`. Count 1 means this request created the row; count 0 means another row already exists and must remain untouched. These defaults and conflict safety belong to the server operation, not client-written fields. This UI-only change neither modifies nor deploys the connector; the Firebase owner must supply the matching operation and review its authorization/abuse exposure before use.
+
+1. Execute `GetStockByProductID` with `SERVER_ONLY`.
+2. Only an explicit `{ stock: null }` allows registration. A failed lookup, missing `stock` field, malformed row or mismatched product ID never triggers a mutation.
+3. Call `RegisterScannedProduct` once, passing only the unchanged `productID`; require a numeric count of 0 or 1.
+4. Reread `GetStockByProductID` with `SERVER_ONLY` and validate/interpret that row. Never fabricate a local product from the mutation count. Existing products take only the initial read.
+5. Mount `LocationWorkflow` only after the receiving flow succeeds, avoiding a concurrent location read of a not-yet-created record. Show “New product registered” only for count 1 followed by a successful reread.
+
+New records have **unknown expiry**, not an invented future date. Registration is not receipt or permission to put away: existing unknown-expiry policy still blocks assignment and normal dispatch until staff verify expiry through the owner's data-maintenance process. This change adds no expiry editor or automatic date write.
+
+Connectivity is required. Failed/malformed registration or rereads do not yield success or mount location. Scan again, unmount or the 15-second flow timeout stops waiting. Cancellation before mutation submission prevents a later registration, including when a missing-product lookup returns late. Data Connect requests already submitted cannot be cancelled: a mutation may finish after cancellation/timeout, and the UI does not roll it back or automatically resend it. Retry starts with a fresh server lookup; if the row now exists, it is not registered again. After an uncertain outcome, creation attribution may be lost on retry, so no creation message is claimed.
 
 ## Location operations
 
@@ -70,4 +84,4 @@ These are deployed-cloud/device checks for the owners, not claims made by local 
 
 The app calculates expiry using the **phone's local calendar date**. A valid expiry date is eligible through that date, earlier dates are expired, and missing/invalid dates are unknown. Device clock errors or tampering, client modifications and stale data can produce an incorrect decision: this is an MVP trade-off, not trusted server-side authorization. Staff must verify eligibility before put-away.
 
-Automated tests cover response validation and local date boundaries but do not contact Firebase or exercise the camera. Before operational use, deploy to an isolated test project and test the actual Android/iOS Expo runtime, camera, network failures, timeout/retry and known/missing products. Check yesterday/today/tomorrow and missing expiry fixtures using the phone's local date, verify the public operation's access and returned fields, and verify the expected stock, slot and activity changes through the isolated service. Native runtime and deployed schema/data are not verified by these local tests.
+Automated tests cover response validation, local date boundaries, injected lookup/register/reread ordering, conflict counts, exact barcode identity, failure/cancellation paths, and App render gating/creation messages. They do not contact Firebase or exercise the native camera. Before operational use, deploy to an isolated test project and test the actual Android/iOS Expo runtime, camera, network failures, timeout/retry and known/missing products. Check yesterday/today/tomorrow and missing expiry fixtures using the phone's local date, verify the public operation's access and returned fields, and verify the expected stock, slot and activity changes through the isolated service. Native runtime and deployed schema/data are not verified by these local tests.

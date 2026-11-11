@@ -11,6 +11,18 @@ export const connectorConfig = {
   service: 'smart-warehouse-service',
   location: 'asia-southeast1'
 };
+export const registerScannedProductRef = (dcOrVars, vars) => {
+  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
+  dcInstance._useGeneratedSdk();
+  return mutationRef(dcInstance, 'RegisterScannedProduct', inputVars);
+}
+registerScannedProductRef.operationName = 'RegisterScannedProduct';
+
+export function registerScannedProduct(dcOrVars, vars) {
+  const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
+  return executeMutation(registerScannedProductRef(dcInstance, inputVars));
+}
+
 export const reportSlotOccupancyRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
   dcInstance._useGeneratedSdk();

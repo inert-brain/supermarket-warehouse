@@ -4,15 +4,17 @@
 #include <stdint.h>
 #include <time.h>
 
+
+
 // EDIT SETTINGS HERE. This sketch needs no project headers or config.h.
 // Keep real Wi-Fi credentials out of Git and shared copies of this file.
 constexpr char RACK_WIFI_SSID[] = "";
 constexpr char RACK_WIFI_PASSWORD[] = "";  // Empty is allowed for an open test network.
-constexpr char RACK_FIREBASE_API_KEY[] = "";  // Public web API key, never a service-account key.
-constexpr char RACK_FIREBASE_APP_ID[] = "";   // Same app ID as the phone's Firebase app.
-constexpr char RACK_PROJECT[] = "smart-warehouse-3171e";
+constexpr char RACK_FIREBASE_API_KEY[] = "AIzaSyAUaPCap80W1HiUiAj6QROvEFMLwuXUTFs";  // Public web API key, never a service-account key.
+constexpr char RACK_FIREBASE_APP_ID[] = "1:620426609195:web:8120d4be0bb9f9cc0fe06e";   // Same app ID as the phone's Firebase app.
+constexpr char RACK_PROJECT[] = "mart-parking-fdd6b";
 constexpr char RACK_REGION[] = "asia-southeast1";
-constexpr char RACK_SERVICE[] = "smart-warehouse-service";
+constexpr char RACK_SERVICE[] = "smart-supermarket-service";
 constexpr char RACK_CONNECTOR[] = "example";
 
 // REQUIRED: paste actual trusted root PEM(s) from https://pki.goog/repository/.

@@ -14,6 +14,20 @@ const connectorConfig = {
 };
 exports.connectorConfig = connectorConfig;
 
+const registerScannedProductRef = (dcOrVars, vars) => {
+  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
+  dcInstance._useGeneratedSdk();
+  return mutationRef(dcInstance, 'RegisterScannedProduct', inputVars);
+}
+registerScannedProductRef.operationName = 'RegisterScannedProduct';
+exports.registerScannedProductRef = registerScannedProductRef;
+
+exports.registerScannedProduct = function registerScannedProduct(dcOrVars, vars) {
+  const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
+  return executeMutation(registerScannedProductRef(dcInstance, inputVars));
+}
+;
+
 const reportSlotOccupancyRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
   dcInstance._useGeneratedSdk();

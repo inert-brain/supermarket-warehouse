@@ -1,13 +1,13 @@
 specVersion: "v1"
-serviceId: "smart-warehouse-service"
+serviceId: "smart-supermarket-service"
 location: "asia-southeast1"
 schemas:
   - source: "./schema"
     datasource:
       postgresql:
-        database: "smart-warehouse-database"
+        database: "smart-supermarket-database"
         cloudSql:
-          instanceId: "smart-warehouse-instance"
+          instanceId: "smart-supermarket-instance"
           # schemaValidation: "STRICT"     # STRICT mode makes Postgres schema match Data Connect exactly.
           # schemaValidation: "COMPATIBLE" # COMPATIBLE mode makes Postgres schema compatible with Data Connect.
 connectorDirs: ["./example"]

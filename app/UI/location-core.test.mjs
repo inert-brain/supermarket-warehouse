@@ -35,9 +35,9 @@ test('slot labels use saved occupancy and assignment, not sensor age or stock ag
 });
 
 test('all valid unassigned stocks can select false/null targets with old, future or absent timestamps', () => {
-  for (const status of statuses) for (const isOccupied of [false, null]) {
+  for (const expiry of ['valid', 'unknown']) for (const status of statuses) for (const isOccupied of [false, null]) {
     for (const occupancyUpdatedAt of [null, '2000-01-01T00:00:00Z', '2099-01-01T00:00:00Z']) {
-      const data = snapshot(status, 'valid', false);
+      const data = snapshot(status, expiry, false);
       Object.assign(data.slots[0], { isOccupied, occupancyUpdatedAt });
       const before = structuredClone(data);
       assert.equal(validateSnapshot(data, '001'), data);
@@ -50,8 +50,8 @@ test('all valid unassigned stocks can select false/null targets with old, future
 });
 
 test('false/null assigned source can move regardless of stock; its own slot is always a no-op', () => {
-  for (const status of statuses) for (const isOccupied of [false, null]) {
-    const data = snapshot(status, 'valid', true);
+  for (const expiry of ['valid', 'unknown']) for (const status of statuses) for (const isOccupied of [false, null]) {
+    const data = snapshot(status, expiry, true);
     data.slots[0].isOccupied = isOccupied;
     data.slots[1].isOccupied = null;
     data.slots[1].occupancyUpdatedAt = null;
@@ -92,23 +92,25 @@ test('other products remain reserved for all stock and occupancy combinations', 
 });
 
 test('dispatch permits false or unknown occupancy for an assigned valid product', () => {
-  for (const status of statuses) for (const isOccupied of [false, null]) for (const occupancyUpdatedAt of [null, '2000-01-01T00:00:00Z', '2099-01-01T00:00:00Z']) {
-    const data = snapshot(status, 'valid', true);
+  for (const expiry of ['valid', 'unknown']) for (const status of statuses) for (const isOccupied of [false, null]) for (const occupancyUpdatedAt of [null, '2000-01-01T00:00:00Z', '2099-01-01T00:00:00Z']) {
+    const data = snapshot(status, expiry, true);
     Object.assign(data.slots[0], { isOccupied, occupancyUpdatedAt });
     assert.equal(canDispatch(data), true);
     assert.deepEqual(makeCommand(data, 'DispatchProduct'), { action: 'DispatchProduct', productID: '001', sourceSlotID: 1, targetSlotID: null });
     data.slots[0].isOccupied = true;
     assert.equal(canDispatch(data), false);
     assert.throws(() => makeCommand(data, 'DispatchProduct'));
-    assert.equal(canDispatch(snapshot(status, 'valid', false)), false);
+    assert.equal(canDispatch(snapshot(status, expiry, false)), false);
   }
 });
 
 test('phone expiry still blocks normal assignment and dispatch; expired logging does not alter inventory', () => {
-  for (const expiry of ['expired', 'unknown']) {
+  for (const expiry of ['expired']) {
     for (const status of statuses) for (const assigned of [false, true]) {
       const data = snapshot(status, expiry, assigned); data.slots[0].isOccupied = false;
       assert.equal(actionForSlot(data, 2), null);
+      assert.throws(() => makeCommand(data, assigned ? 'ChangeAssignedSlot' : 'AssignProductToSlot', 2));
+      assert.equal(canDispatch(data), false);
       assert.throws(() => makeCommand(data, 'DispatchProduct'));
     }
   }

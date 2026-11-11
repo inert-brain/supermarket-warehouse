@@ -33,7 +33,7 @@ async function main() {
     const read = async (name, variables) => (await executeQuery(ref(name)(dc, variables), { fetchPolicy: QueryFetchPolicy.SERVER_ONLY })).data;
     const report = (slotID, occupied) => run('ReportSlotOccupancy', { slotID, occupied });
     const state = async () => ({
-      stocks: (await db.query('SELECT product_id, current_status, status_updated_at, expires_on FROM stocks ORDER BY product_id')).rows,
+      stocks: (await db.query('SELECT product_id, current_status, status_updated_at, description, expires_on FROM stocks ORDER BY product_id')).rows,
       slots: (await db.query('SELECT slot_id, assigned_product_id, assigned_at, is_occupied, occupancy_updated_at FROM slots ORDER BY slot_id')).rows,
       activities: (await db.query('SELECT product_id, activity_type, occurred_at FROM activities ORDER BY activity_id')).rows,
     });
@@ -118,6 +118,53 @@ async function main() {
       return after;
     };
 
+    // Registration accepts exact arbitrary strings, never an upsert/update or a receipt.
+    const beforeRegistration = await state();
+    const registeredIDs = ['000001234567890', "  000-custom/雪-'$1;--  "];
+    for (const productID of registeredIDs) {
+      const started = Date.now();
+      assert.deepEqual(await run('RegisterScannedProduct', { productID }), { registration: 1 });
+      const finished = Date.now();
+      const row = (await db.query('SELECT * FROM stocks WHERE product_id = $1', [productID])).rows[0];
+      assert.equal(row.product_id, productID);
+      assert.equal(row.current_status, 'EMPTY');
+      assert.equal(row.description, null);
+      assert.equal(row.expires_on, null);
+      assert.ok(row.status_updated_at.getTime() >= started && row.status_updated_at.getTime() <= finished);
+      assert.deepEqual((await read('GetStockByProductID', { productID })).stock,
+        { productID, description: null, expiresOn: null });
+      const beforeRepeat = await state();
+      assert.deepEqual(await run('RegisterScannedProduct', { productID }), { registration: 0 });
+      assert.deepEqual(await state(), beforeRepeat);
+    }
+    // Every existing status, metadata and old timestamp must survive repeated registration.
+    for (const status of ['EMPTY', 'OCCUPIED', 'PENDING_DISPATCH']) {
+      const productID = `registration-known-${status}`;
+      await db.query("INSERT INTO stocks (product_id, current_status, status_updated_at, description, expires_on) VALUES ($1, $2, '2001-02-03T04:05:06Z', 'keep exact metadata', '2002-03-04')", [productID, status]);
+      const before = await state();
+      for (let i = 0; i < 2; i++) {
+        assert.deepEqual(await run('RegisterScannedProduct', { productID }), { registration: 0 });
+        assert.deepEqual(await state(), before);
+      }
+      await db.query('DELETE FROM stocks WHERE product_id = $1', [productID]);
+    }
+    // Existing assigned inventory is also a complete no-op.
+    for (const productID of ['test-001', 'blocker']) {
+      const before = await state();
+      assert.deepEqual(await run('RegisterScannedProduct', { productID }), { registration: 0 });
+      assert.deepEqual(await state(), before);
+    }
+    for (const productID of ['', ' ', '\t\r\n']) {
+      await rejectUnchanged('RegisterScannedProduct', { productID });
+    }
+    const afterRegistration = await state();
+    assert.deepEqual(afterRegistration.slots, beforeRegistration.slots);
+    assert.deepEqual(afterRegistration.activities, beforeRegistration.activities);
+    await db.query('DELETE FROM stocks WHERE product_id = ANY($1::text[])', [registeredIDs]);
+    assert.deepEqual(await state(), beforeRegistration);
+    console.log('Registration integration passed: arbitrary exact IDs, request-time EMPTY insertion, null metadata, repeat/all-status preservation, blank rejection, no slot/activity changes and SDK readback');
+    if (process.argv.includes('--registration-only')) return;
+
     const unknown = (await read('GetSlotMenu')).slots;
     for (const s of unknown) { assert.equal(s.isOccupied, null); assert.equal(s.occupancyUpdatedAt, null); }
     for (const targetSlotID of [0, 9, 8]) await rejectUnchanged('AssignProductToSlot', { targetSlotID });
@@ -187,7 +234,7 @@ async function main() {
           assert.ok(slot(a, 2).assigned_at);
           await db.query("UPDATE slots SET occupancy_updated_at = now() + interval '1 day' WHERE slot_id IN (1, 2)");
           await assignmentOnly('ChangeAssignedSlot', { sourceSlotID: 2, targetSlotID: 1 });
-          if (sourceOccupied === null) await rejectUnchanged('DispatchProduct', { sourceSlotID: 1 });
+          // Null occupancy permits demo dispatch; covered in the dedicated dispatch cases below.
         }
       }
     }

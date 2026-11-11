@@ -101,6 +101,7 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
       const latest = await refreshCommand(adapter, command, controller.signal);
       if (!active.current || !foreground.current || current !== generation.current) throw new Error('The screen changed. Refresh and confirm again.');
       setSnapshot(latest);
+      return latest;
     } finally { if (request.current === controller) request.current = null; }
   }, [adapter]);
 
@@ -142,7 +143,7 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
     setWorking(true);
     try {
       const command = makeCommand(snapshot, action, targetId);
-      await preflight(command);
+      const latest = await preflight(command);
       let open = true;
       const cancel = () => {
         if (open) { open = false; dismissConfirmation.current = null; release(); }
@@ -151,7 +152,9 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
       const description = action === 'DispatchProduct'
         ? 'Confirm this product has left the warehouse. This releases its reserved slot. Saved vacant occupancy may be old; check the physical product.'
         : `Assign ${productID} to slot ${targetId}? This saves the assignment only, not placement or receipt. Place the scanned product there; the sensor cannot verify its identity.`;
-      Alert.alert('Staff confirmation', description, [
+      const expiryWarning = latest.product.expiry === 'unknown'
+        ? 'Warning: expiry is missing or invalid. You can continue; check the physical product’s expiry when available.\n\n' : '';
+      Alert.alert('Staff confirmation', expiryWarning + description, [
         { text: 'Cancel', style: 'cancel', onPress: cancel },
         { text: 'Confirm', onPress: () => {
           if (!open) return;
@@ -177,7 +180,7 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
     {snapshot && <>
       <Text>Stock: {snapshot.product.status} · Expiry: {snapshot.product.expiry}</Text>
       {snapshot.product.expiry === 'expired' && <Text>Expired: receiving assignment and normal dispatch are blocked. Rejection logging does not clear stock or slots; disposal is not supported. Sensor returns still update stock.</Text>}
-      {snapshot.product.expiry === 'unknown' && <Text>Verify expiry before assigning or dispatching. Sensor transitions do not depend on phone expiry.</Text>}
+      {snapshot.product.expiry === 'unknown' && <Text>Warning: expiry is missing or invalid. Assignment, reassignment, and dispatch are allowed; check the physical product’s expiry when available. Sensor transitions do not depend on phone expiry.</Text>}
       {onRack ? <Text>Already in Slot {source.slotId} · On rack (last saved occupancy).</Text> : <>
         <Text>{source ? source.isOccupied === null ? 'Occupancy unknown' : 'Off rack' : 'Unassigned'} — choose a slot.</Text>
         <View style={styles.grid}>{[...snapshot.slots].sort((a, b) => a.slotId - b.slotId).map(slot => {
@@ -191,7 +194,7 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
           </Pressable>;
         })}</View>
         <Text>Saved occupancy may be old. Unknown occupancy is selectable for unassigned slots in this demo; it does not prove vacancy. Other products’ assignments remain reserved.</Text>
-        {!canDispatch(snapshot) && <Text>Departure requires valid expiry and a matching slot assignment that is not detected as occupied. Unknown occupancy is allowed for this demo; confirm the product has actually left.</Text>}
+        {!canDispatch(snapshot) && <Text>Departure requires a product that is not expired and a matching slot assignment that is not detected as occupied. Unknown occupancy is allowed for this demo; confirm the product has actually left.</Text>}
         <Button title="Remove Product (external dispatch)" disabled={!adapter?.writesEnabled || busy || !canDispatch(snapshot)} onPress={() => void confirm('DispatchProduct')} />
       </>}
     </>}

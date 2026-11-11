@@ -14,8 +14,11 @@ If a user is not using a supported framework, they can use the generated SDK dir
 Here's an example of how to use it with the first 5 operations:
 
 ```js
-import { reportSlotOccupancy, assignProductToSlot, changeAssignedSlot, dispatchProduct, recordExpiredScan, getSlotBindings, getProductContext, getSlotMenu, getLocationSnapshot, dashboardStocks } from '@dataconnect/example';
+import { registerScannedProduct, reportSlotOccupancy, assignProductToSlot, changeAssignedSlot, dispatchProduct, recordExpiredScan, getSlotBindings, getProductContext, getSlotMenu, getLocationSnapshot } from '@dataconnect/example';
 
+
+// Operation RegisterScannedProduct:  For variables, look at type RegisterScannedProductVars in ../index.d.ts
+const { data } = await RegisterScannedProduct(dataConnect, registerScannedProductVars);
 
 // Operation ReportSlotOccupancy:  For variables, look at type ReportSlotOccupancyVars in ../index.d.ts
 const { data } = await ReportSlotOccupancy(dataConnect, reportSlotOccupancyVars);
@@ -43,9 +46,6 @@ const { data } = await GetSlotMenu(dataConnect);
 
 // Operation GetLocationSnapshot:  For variables, look at type GetLocationSnapshotVars in ../index.d.ts
 const { data } = await GetLocationSnapshot(dataConnect, getLocationSnapshotVars);
-
-// Operation DashboardStocks:  For variables, look at type DashboardStocksVars in ../index.d.ts
-const { data } = await DashboardStocks(dataConnect, dashboardStocksVars);
 
 
 ```

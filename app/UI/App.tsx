@@ -1,20 +1,21 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Button, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { validateReceiving, type ValidationResult } from './receiving';
+import { ActivityIndicator, Alert, AppState, Button, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { validateReceiving, type ReceivingResult } from './receiving';
 import { LocationWorkflow } from './location/LocationWorkflow';
 
 
 type LookupState =
   | { status: 'loading' }
-  | { status: 'success'; result: ValidationResult }
+  | { status: 'success'; result: ReceivingResult }
   | { status: 'error'; message: string };
 
 export default function App() {
   const [permission, requestPermission, getPermission] = useCameraPermissions();
   const [barcode, setBarcode] = useState<string | null>(null);
   const scanned = useRef(false);
+    const expiryWarned = useRef(false);
   const request = useRef<AbortController | null>(null);
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
@@ -47,12 +48,16 @@ export default function App() {
       const result = await validateReceiving(value, controller.signal);
       if (request.current === controller && !controller.signal.aborted) {
         setLookup({ status: 'success', result });
+                if (result.decision === 'EXPIRY_UNKNOWN' && !expiryWarned.current) {
+                  expiryWarned.current = true;
+                  Alert.alert('Expiry unknown', 'Expiry is missing or invalid. You can continue assigning, reassigning, or dispatching this product. Check the physical product’s expiry when available.');
+                }
       }
     } catch (error) {
       if (request.current === controller && (!controller.signal.aborted || timedOut)) {
         setLookup({
           status: 'error',
-          message: timedOut ? 'The lookup timed out. Check the connection and retry.' :
+          message: timedOut ? 'The product check timed out. Registration may have completed; retry to read the current record.' :
             error instanceof Error ? error.message : 'Validation failed. Please retry.',
         });
       }
@@ -74,6 +79,7 @@ export default function App() {
     request.current?.abort();
     request.current = null;
     scanned.current = false;
+    expiryWarned.current = false;
     setLookup(null);
     setBarcode(null);
   }
@@ -108,11 +114,11 @@ export default function App() {
     <View style={styles.container}>
       <StatusBar style="auto" />
       <Text style={styles.title}>Barcode scanner</Text>
-      <Text style={styles.message}>Point the camera at a Code 128 barcode.</Text>
+      <Text style={styles.message}>Scan a retail barcode: Code 128, EAN-13, EAN-8, UPC-A, UPC-E or Code 39.</Text>
       <CameraView
         style={styles.camera}
         facing="back"
-        barcodeScannerSettings={{ barcodeTypes: ['code128'] }}
+        barcodeScannerSettings={{ barcodeTypes: ['code128', 'ean13', 'ean8', 'upc_a', 'upc_e', 'code39'] }}
         onBarcodeScanned={barcode === null ? handleScan : undefined}
       />
       <ScrollView style={styles.result} contentContainerStyle={styles.resultContent}>
@@ -125,7 +131,7 @@ export default function App() {
             {lookup?.status === 'loading' && (
               <View accessibilityRole="progressbar">
                 <ActivityIndicator />
-                <Text>Checking product…</Text>
+                <Text>Checking product and registering if missing…</Text>
               </View>
             )}
             {lookup?.status === 'error' && (
@@ -136,20 +142,23 @@ export default function App() {
             )}
             {lookup?.status === 'success' && (
               <>
+                {lookup.result.registered && (
+                  <Text style={styles.message}>New product registered. Description and expiry are not provided; you can continue with an expiry warning.</Text>
+                )}
                 <Text style={styles.label}>Decision: {lookup.result.decision}</Text>
                 <Text style={styles.message}>
                   {lookup.result.decision === 'READY_FOR_PUTAWAY'
                     ? 'Potentially eligible based on this device’s clock. Staff must verify before put-away; this does not record receipt.'
                     : lookup.result.decision === 'EXPIRED'
                       ? 'Expired: do not receive this product.'
-                      : 'Expiry unknown: do not receive until staff verify it.'}
+                      : 'Expiry unknown: warning only. You can continue assigning, reassigning, or dispatching; check the physical product’s expiry when available.'}
                 </Text>
                 <Text>Product ID: {lookup.result.product.productID}</Text>
                 <Text>Description: {lookup.result.product.description ?? 'Not provided'}</Text>
                 <Text>Expires on: {lookup.result.product.expiresOn ?? 'Unknown'}</Text>
+                <LocationWorkflow key={barcode} productID={barcode} onBusyChange={setLocationBusy} />
               </>
             )}
-            <LocationWorkflow key={barcode} productID={barcode} onBusyChange={setLocationBusy} />
             <View style={styles.button}><Button title="Scan again" disabled={locationBusy} onPress={scanAgain} /></View>
           </>
         )}

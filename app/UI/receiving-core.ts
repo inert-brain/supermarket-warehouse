@@ -7,6 +7,61 @@ export type ValidationResult = {
   };
 };
 
+export type ReceivingResult = ValidationResult & { registered: boolean };
+
+export type ReceivingClient = {
+  lookup(productID: string): Promise<unknown>;
+  register(productID: string): Promise<unknown>;
+};
+
+// Keep the client calls behind cancellation checks: aborting a wait does not
+// cancel Data Connect itself, and a late lookup must never initiate a write.
+export async function lookupOrRegister(
+  barcode: string, signal: AbortSignal, client: ReceivingClient,
+  today: () => string = () => localDate(new Date()),
+): Promise<ReceivingResult> {
+  if (!barcode.trim()) throw new Error('The barcode is empty. Scan it again.');
+  const checkCancelled = () => {
+    if (signal.aborted) throw new Error('Lookup cancelled.');
+  };
+  const read = async () => {
+    checkCancelled();
+    let data: unknown;
+    try {
+      data = await waitForQuery(client.lookup(barcode), signal);
+    } catch {
+      checkCancelled();
+      throw new Error('Could not look up the product. Check the connection and Data Connect configuration, then retry.');
+    }
+    checkCancelled();
+    return data;
+  };
+
+  const data = await read();
+  if (typeof data !== 'object' || data === null || Array.isArray(data) ||
+      !Object.prototype.hasOwnProperty.call(data, 'stock') || (data as { stock: unknown }).stock !== null) {
+    return { ...interpretStock(data, barcode, today()), registered: false };
+  }
+
+  checkCancelled();
+  let registration: unknown;
+  try {
+    registration = await waitForQuery(client.register(barcode), signal);
+  } catch {
+    checkCancelled();
+    throw new Error('Registration could not be confirmed and may have completed. Retry to read the product before attempting registration again.');
+  }
+  checkCancelled();
+  if (typeof registration !== 'object' || registration === null || Array.isArray(registration) ||
+      !('registration' in registration) || (registration.registration !== 0 && registration.registration !== 1)) {
+    throw new Error('Unexpected registration response. Registration may have completed; retry the lookup.');
+  }
+  // Even an insert count of 1 is not a product snapshot. A concurrent insert
+  // (count 0) must also be read rather than replaced with local defaults.
+  const fresh = await read();
+  return { ...interpretStock(fresh, barcode, today()), registered: registration.registration === 1 };
+}
+
 export function waitForQuery<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise((resolve, reject) => {
     const abort = () => {
