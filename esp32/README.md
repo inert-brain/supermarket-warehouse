@@ -1,11 +1,13 @@
-# Eight-slot occupancy reporter
+# Eight-slot rack firmware
 
 Single-file Arduino ESP32-S3 firmware implementing the ESP32 portion of `plan.md`.
 The rack reports physical occupancy directly to Firebase Data Connect; the cloud
 resolves assignments, product status, and activities. Firmware does not query
 products, choose product transitions, receive, dispatch, clear bindings, or decide
-expiry. No laptop service, Firebase Arduino library, UNO, LCD, LEDs, or buttons are
-required. This firmware change does not deploy the cloud or update the phone/dashboard.
+expiry. It also commands the UNO LEDs and provides an optional LCD/button slot
+browser. Missing LCD hardware does not disable occupancy reporting or LED commands.
+No laptop service or Firebase Arduino library is required. This firmware change
+does not deploy the cloud or update the phone/dashboard.
 
 ## No serial logs on ESP32-S3?
 
@@ -152,6 +154,67 @@ lift, and return are interpreted by the cloud from occupancy reports. Refresh th
 phone and use dashboard Sync as appropriate; firmware does not update UI directly.
 
 ## Validation
+
+### LCD and buttons
+
+Install **hd44780 by Bill Perry, version 1.3.2** through Arduino Library Manager
+(search "Extensible hd44780"), alongside ArduinoJson 7. CLI alternative:
+
+```sh
+arduino-cli lib install hd44780@1.3.2
+```
+
+The [hd44780 library](https://github.com/duinoWitchery/hd44780) backpack driver
+automatically detects I2C address and pin mapping. LCD SDA is GPIO8; SCL is GPIO9.
+Keep the documented 4.7kΩ pull-ups to 3.3V and remove backpack pull-ups to 5V.
+Buttons connect GPIO to GND using internal pull-ups:
+
+| Button | GPIO | Action |
+|---|---|---|
+| Back / PREV | 11 | Previous slot; 1 wraps to 8 |
+| Middle / MODE | 12 | Toggle Product ID / Assigned time |
+| Next / NEXT | 10 | Next slot; 8 wraps to 1 |
+
+Startup selects slot 1, Product ID view. Changing slots retains the view.
+Presses are debounced for 30 ms; holding does not repeat, and simultaneous
+presses are ignored until released. Row 1 identifies the slot/field; row 2 shows
+the product ID or assignment date/time in Philippine time (UTC+8), formatted
+`YYYY-MM-DD HH:mm`. Product IDs longer than 16 characters page every second.
+Navigation or changed product data restarts paging.
+
+Unknown assignments show `Sync pending`, confirmed unassigned slots show
+`Unassigned`, and invalid assigned times show `Time unavailable`. These are
+cached assignments, refreshed by successful existing Firebase responses. Browsing
+continues offline with cached data; reboot clears the cache and selection.
+
+LCD setup runs once. Initialization or write failure logs an error and disables
+the display until restart, while sensor sampling, LED commands and Firebase
+continue. I2C transactions have a 10 ms timeout. Updates write one changed
+character per loop, without repeatedly clearing the screen.
+
+Native LCD checks:
+
+```sh
+g++ -std=c++11 -Wall -Wextra -Werror -pedantic esp32/tests/lcd_logic_test.cpp -o /tmp/rack_lcd_test
+/tmp/rack_lcd_test
+```
+
+Bench-check all buttons, product/time views, assignment updates, Wi-Fi loss,
+power cycling, and missing/disconnected LCD while Hall readings and UNO LEDs
+continue. Native checks cannot verify electrical behavior or physical I2C timing.
+
+### UNO LED integration
+
+`Serial1` uses RX GPIO14 / TX GPIO13 at 9600 baud, 8N1. The main loop sends
+eight LED modes on change and every second, independently of the cloud worker.
+Assignments are cached from existing successful occupancy responses. ON means
+vacant and unassigned; OFF includes occupied, unknown, and awaiting first
+placement; BLINK means an assigned box was removed after being on-rack.
+The cache survives Wi-Fi loss in RAM, but resets at reboot. App assignment and
+dispatch changes appear after the next successful report for that slot.
+See [UNO setup](../arduino/README.md) and [integration plan](../arduino/plan.md).
+
+### Native tests
 
 Native tests include the **same sketch**, excluding Arduino-specific code:
 

@@ -202,7 +202,55 @@ void millisWraparound() {
   assert(rack::reportDue(early, report, uint32_t(start + kMinimumCycleMs)));
 }
 
+void ledLifecycle() {
+  Sensor vacant = baseline(false);
+  Sensor occupied = baseline(true);
+  rack::LedAssignment a;
+  assert(rack::ledMode(a, Sensor{}) == '0');
+  assert(rack::ledMode(a, vacant) == '0');
+  assert(rack::ledMode(a, occupied) == '0');
+
+  rack::updateAssignment(a, false, false, false, vacant);
+  assert(rack::ledMode(a, vacant) == '1');
+  assert(rack::ledMode(a, occupied) == '0');  // Unidentified object.
+  rack::updateAssignment(a, false, true, false, vacant);
+  assert(rack::ledMode(a, vacant) == '0');  // Awaiting first placement.
+  rack::observePlacement(a, occupied);
+  assert(rack::ledMode(a, occupied) == '0');
+  assert(rack::ledMode(a, vacant) == '2');  // Local removal, even offline.
+  rack::updateAssignment(a, true, true, false, vacant);
+  assert(rack::ledMode(a, vacant) == '2');  // Same assignment cannot erase placement.
+  rack::observePlacement(a, occupied);
+  assert(rack::ledMode(a, occupied) == '0');  // Returned without scanning.
+  rack::updateAssignment(a, false, false, false, vacant);
+  assert(rack::ledMode(a, vacant) == '1');  // Dispatch clears reservation.
+  rack::updateAssignment(a, false, true, false, vacant);
+  assert(rack::ledMode(a, vacant) == '0');  // New box has its own placement latch.
+  rack::updateAssignment(a, false, true, true, vacant);
+  assert(rack::ledMode(a, vacant) == '2');  // Boot with OCCUPIED/PENDING_DISPATCH cache.
+  rack::updateAssignment(a, false, true, false, vacant);
+  assert(rack::ledMode(a, vacant) == '0');  // Same barcode, new assignedAt: fresh placement.
+  rack::updateAssignment(a, false, true, false, occupied);
+  assert(a.previouslyOnRack);  // Assignment arrives while already physically present.
+
+  // Raw bounce cannot change the accepted LED state or mark first placement.
+  rack::LedAssignment waiting;
+  rack::updateAssignment(waiting, false, true, false, vacant);
+  rack::sample(vacant, true, 400, kStableMs);
+  rack::observePlacement(waiting, vacant);
+  assert(!waiting.previouslyOnRack);
+  assert(rack::ledMode(waiting, vacant) == '0');
+  rack::sample(vacant, true, 700, kStableMs);
+  rack::observePlacement(waiting, vacant);
+  assert(waiting.previouslyOnRack);
+  rack::sample(vacant, false, 720, kStableMs);
+  assert(rack::ledMode(waiting, vacant) == '0');
+  rack::sample(vacant, false, 1020, kStableMs);
+  assert(rack::ledMode(waiting, vacant) == '2');
+}
+
 int main() {
+  ledLifecycle();
   startupAndHeartbeat();
   debounceAndUnsettledCandidates();
   networkGapGuards();
@@ -210,5 +258,5 @@ int main() {
   failureAndLostResponse();
   allSlotsAndReconnect();
   millisWraparound();
-  std::cout << "PASS: stable startup, heartbeats, debounce, TLS generation guards, latest-state retries, all eight slots, reconnect, millis wrap\n";
+  std::cout << "PASS: LED lifecycle, stable startup, heartbeats, debounce, TLS generation guards, latest-state retries, all eight slots, reconnect, millis wrap\n";
 }

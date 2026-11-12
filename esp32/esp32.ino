@@ -1,10 +1,10 @@
-// Target: ESP32-S3 with the Espressif Arduino core and ArduinoJson 7.
+// Target: ESP32-S3 with the Espressif Arduino core, ArduinoJson 7, and hd44780.
 // Generic compile target: esp32:esp32:esp32s3; verify board-specific pins/USB/flash before upload.
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
-
-
+#include <stdio.h>
+#include <string.h>
 
 // EDIT SETTINGS HERE. This sketch needs no project headers or config.h.
 // Keep real Wi-Fi credentials out of Git and shared copies of this file.
@@ -115,6 +115,145 @@ inline void finishReport(ReportSchedule &report, const Sensor &sent,
 inline void resetReports(ReportSchedule (&reports)[kSlotCount]) {
   for (auto &report : reports) report = ReportSchedule{};
 }
+
+// RAM-only cloud assignment cache. A vacant awaiting-placement slot never blinks.
+struct LedAssignment {
+  bool known = false;
+  bool assigned = false;
+  bool previouslyOnRack = false;
+};
+
+inline void observePlacement(LedAssignment &a, const Sensor &s) {
+  if (a.known && a.assigned && s.baselineReady && s.stableOccupied)
+    a.previouslyOnRack = true;
+}
+
+inline void updateAssignment(LedAssignment &a, bool sameIdentity, bool assigned,
+                             bool cloudPreviouslyOnRack, const Sensor &s) {
+  if (!sameIdentity) a = LedAssignment{};
+  a.known = true;
+  a.assigned = assigned;
+  a.previouslyOnRack = assigned && (a.previouslyOnRack || cloudPreviouslyOnRack);
+  observePlacement(a, s);
+}
+
+// Wire digits: 0=off, 1=on/free, 2=blink/removed but still assigned.
+inline char ledMode(const LedAssignment &a, const Sensor &s) {
+  if (!s.baselineReady || s.stableOccupied || !a.known) return '0';
+  if (!a.assigned) return '1';
+  return a.previouslyOnRack ? '2' : '0';
+}
+
+// Button bits: back=1, mode=2, next=4. One event per debounced press.
+struct SlotBrowser {
+  size_t slot = 0;
+  bool showTime = false;
+  uint8_t candidate = 0;
+  uint8_t stable = 0;
+  bool blocked = false;
+  uint32_t candidateSince = 0;
+  uint32_t pageSince = 0;
+
+  bool poll(uint8_t pressed, uint32_t now) {
+    if (pressed && (pressed & (pressed - 1))) blocked = true;
+    if (pressed != candidate) {
+      candidate = pressed;
+      candidateSince = now;
+    }
+    if (uint32_t(now - candidateSince) < 30u) return false;
+    if (!pressed) blocked = false;
+    if (stable == pressed) return false;
+    stable = pressed;
+    if (!pressed || blocked) return false;
+    if (pressed == 1) slot = (slot + kSlotCount - 1) % kSlotCount;
+    else if (pressed == 2) showTime = !showTime;
+    else if (pressed == 4) slot = (slot + 1) % kSlotCount;
+    else return false;
+    pageSince = now;
+    return true;
+  }
+};
+
+inline int monthDays(int year, int month) {
+  const int days[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  return days[month - 1] + (month == 2 && year % 4 == 0 &&
+                            (year % 100 != 0 || year % 400 == 0));
+}
+
+inline int decimal(const char *text, size_t count) {
+  int value = 0;
+  for (size_t i = 0; i < count; ++i) {
+    if (text[i] < '0' || text[i] > '9') return -1;
+    value = value * 10 + text[i] - '0';
+  }
+  return value;
+}
+
+// Firebase RFC3339 timestamp -> Philippine time, independent of system TZ/NTP.
+inline bool assignedTimeText(const char *text, char (&out)[17]) {
+  const size_t length = strlen(text);
+  if (length < 20 || text[4] != '-' || text[7] != '-' || text[10] != 'T' ||
+      text[13] != ':' || text[16] != ':') return false;
+  int year = decimal(text, 4), month = decimal(text + 5, 2), day = decimal(text + 8, 2);
+  const int hour = decimal(text + 11, 2), minute = decimal(text + 14, 2);
+  const int second = decimal(text + 17, 2);
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > monthDays(year, month) ||
+      hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59)
+    return false;
+  size_t pos = 19;
+  if (text[pos] == '.') {
+    const size_t start = ++pos;
+    while (text[pos] >= '0' && text[pos] <= '9') ++pos;
+    if (start == pos) return false;
+  }
+  int offset = 0;
+  if (text[pos] == 'Z' && pos + 1 == length) {
+    // UTC.
+  } else if ((text[pos] == '+' || text[pos] == '-') && pos + 6 == length && text[pos + 3] == ':') {
+    const int hours = decimal(text + pos + 1, 2), minutes = decimal(text + pos + 4, 2);
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return false;
+    offset = (hours * 60 + minutes) * (text[pos] == '+' ? 1 : -1);
+  } else return false;
+  int localMinutes = hour * 60 + minute - offset + 8 * 60;
+  while (localMinutes < 0) {
+    localMinutes += 1440;
+    if (--day == 0) {
+      if (--month == 0) { month = 12; --year; }
+      day = monthDays(year, month);
+    }
+  }
+  while (localMinutes >= 1440) {
+    localMinutes -= 1440;
+    if (++day > monthDays(year, month)) {
+      day = 1;
+      if (++month == 13) { month = 1; ++year; }
+    }
+  }
+  if (year < 1 || year > 9999) return false;
+  snprintf(out, sizeof(out), "%04d-%02d-%02d %02d:%02d", year, month, day,
+           localMinutes / 60, localMinutes % 60);
+  return true;
+}
+
+inline void lcdRow(char (&out)[17], const char *text, size_t page = 0) {
+  const size_t length = strlen(text);
+  const size_t offset = (page % (length ? (length + 15) / 16 : 1)) * 16;
+  for (size_t i = 0; i < 16; ++i) {
+    const unsigned char value = offset + i < length ? text[offset + i] : ' ';
+    out[i] = value >= 32 && value <= 126 ? static_cast<char>(value) : '?';
+  }
+  out[16] = '\0';
+}
+
+inline void browserDetail(char (&out)[17], bool known, bool assigned, bool showTime,
+                          const char *content, uint32_t pageElapsed) {
+  char timestamp[17];
+  if (!known) lcdRow(out, "Sync pending");
+  else if (!assigned) lcdRow(out, "Unassigned");
+  else if (showTime)
+    lcdRow(out, assignedTimeText(content, timestamp) ? timestamp : "Time unavailable");
+  else lcdRow(out, content, pageElapsed / 1000u);
+}
 }  // namespace rack
 
 #ifndef RACK_LOGIC_TEST
@@ -123,6 +262,9 @@ inline void resetReports(ReportSchedule (&reports)[kSlotCount]) {
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <Wire.h>
+#include <hd44780.h>
+#include <hd44780ioClass/hd44780_I2Cexp.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -143,8 +285,92 @@ class RackLogger : public Print {
 RackLogger rackLog;
 
 rack::Sensor sensors[rack::kSlotCount];
+rack::LedAssignment ledAssignments[rack::kSlotCount];
+String assignedProductIDs[rack::kSlotCount];  // Protected by sensorMutex too.
+String assignedAtTimes[rack::kSlotCount];  // Distinguish a new assignment of the same box.
 SemaphoreHandle_t sensorMutex = nullptr;
 TaskHandle_t cloudTask = nullptr;
+hd44780_I2Cexp rackLcd;  // Auto-detect backpack address and pin mapping.
+rack::SlotBrowser browser;
+bool lcdReady = false;
+constexpr uint8_t kPrevPin = 11, kModePin = 12, kNextPin = 10;
+
+void setupLcd() {
+  for (uint8_t pin : {kPrevPin, kModePin, kNextPin}) pinMode(pin, INPUT_PULLUP);
+  Wire.begin(8, 9, 100000);
+  Wire.setTimeOut(10);  // Bound failed transactions on a disconnected/stuck bus.
+  const int status = rackLcd.begin(16, 2);
+  lcdReady = status == 0;
+  if (!lcdReady) rackLog.printf("LCD: initialization failed (%d); rack continues without display.\n", status);
+}
+
+void serviceLcd(uint32_t now) {
+  const uint8_t pressed = (digitalRead(kPrevPin) == LOW ? 1 : 0) |
+                          (digitalRead(kModePin) == LOW ? 2 : 0) |
+                          (digitalRead(kNextPin) == LOW ? 4 : 0);
+  const bool navigation = browser.poll(pressed, now);
+  if (!lcdReady) return;
+  static uint32_t lastRefresh = 0;
+  static char desired[2][17] = {};
+  static char displayed[2][17] = {};
+  static String lastContent;
+  static bool lastKnown = false, lastAssigned = false;
+  if (navigation || !desired[0][0] || uint32_t(now - lastRefresh) >= 20u) {
+    lastRefresh = now;
+    String content;
+    bool known = false, assigned = false;
+    if (sensorMutex) {
+      xSemaphoreTake(sensorMutex, portMAX_DELAY);
+      known = ledAssignments[browser.slot].known;
+      assigned = ledAssignments[browser.slot].assigned;
+      content = browser.showTime ? assignedAtTimes[browser.slot] : assignedProductIDs[browser.slot];
+      xSemaphoreGive(sensorMutex);
+    }
+    if (content != lastContent || known != lastKnown || assigned != lastAssigned) {
+      browser.pageSince = now;
+      lastContent = content;
+      lastKnown = known;
+      lastAssigned = assigned;
+    }
+    char heading[17];
+    snprintf(heading, sizeof(heading), browser.showTime ? "Slot %u Time +08" : "Slot %u Product",
+             unsigned(browser.slot + 1));
+    rack::lcdRow(desired[0], heading);
+    rack::browserDetail(desired[1], known, assigned, browser.showTime, content.c_str(),
+                         uint32_t(now - browser.pageSince));
+  }
+  // Update at most one dirty character per loop, with bounded I2C work. No clear/flicker.
+  for (uint8_t row = 0; row < 2; ++row) {
+    for (uint8_t col = 0; col < 16; ++col) {
+      if (displayed[row][col] == desired[row][col]) continue;
+      if (rackLcd.setCursor(col, row) != 0 || rackLcd.write(uint8_t(desired[row][col])) != 1) {
+        lcdReady = false;
+        rackLog.println("LCD: write failed; display disabled until restart, rack continues.");
+      } else displayed[row][col] = desired[row][col];
+      return;
+    }
+  }
+}
+
+void sendLedModes(uint32_t now) {
+  static char previous[rack::kSlotCount] = {};
+  static uint32_t lastSent = 0;
+  static bool sent = false;
+  char frame[] = "L:00000000\n";
+  if (sensorMutex) {
+    xSemaphoreTake(sensorMutex, portMAX_DELAY);
+    for (size_t i = 0; i < rack::kSlotCount; ++i)
+      frame[i + 2] = rack::ledMode(ledAssignments[i], sensors[i]);
+    xSemaphoreGive(sensorMutex);
+  }
+  if (!sent || memcmp(previous, frame + 2, rack::kSlotCount) != 0 ||
+      uint32_t(now - lastSent) >= 1000u) {
+    Serial1.write(reinterpret_cast<const uint8_t *>(frame), sizeof(frame) - 1);
+    memcpy(previous, frame + 2, rack::kSlotCount);
+    lastSent = now;
+    sent = true;
+  }
+}
 
 rack::Sensor sensorSnapshot(size_t index) {
   xSemaphoreTake(sensorMutex, portMAX_DELAY);
@@ -294,6 +520,30 @@ bool reportSlot(size_t index, const rack::Sensor &before) {
   rackLog.printf("[FIREBASE OK] DB UPDATED: slot %u isOccupied=%s (%s); confirmed by Firebase response.\n",
                 unsigned(index + 1), before.stableOccupied ? "true" : "false",
                 before.stableOccupied ? "ON RACK" : "OFF RACK");
+  // Missing/malformed assignment fields must not turn a vacant slot into "free".
+  const JsonVariantConst product = slot["productID"];
+  const char *assignedAt = slot["assignedAt"] | "";
+  const char *status = slot["stock"]["currentStatus"] | "";
+  const bool assigned = product.is<const char *>() && strlen(product.as<const char *>()) > 0;
+  const bool cloudPreviouslyOnRack = strcmp(status, "OCCUPIED") == 0 ||
+                                     strcmp(status, "PENDING_DISPATCH") == 0;
+  if (!product.isUnbound() &&
+      (product.isNull() || (assigned && strlen(assignedAt) &&
+                           (cloudPreviouslyOnRack || strcmp(status, "EMPTY") == 0)))) {
+    const String identity = assigned ? product.as<const char *>() : "";
+    const String assignmentTime = assigned ? assignedAt : "";
+    xSemaphoreTake(sensorMutex, portMAX_DELAY);
+    const bool sameIdentity = ledAssignments[index].known && assignedProductIDs[index] == identity &&
+                              assignedAtTimes[index] == assignmentTime;
+    rack::updateAssignment(ledAssignments[index], sameIdentity, assigned,
+                           cloudPreviouslyOnRack, sensors[index]);
+    assignedProductIDs[index] = identity;
+    assignedAtTimes[index] = assignmentTime;
+    xSemaphoreGive(sensorMutex);
+  } else {
+    rackLog.printf("LED: slot %u invalid assignment response; keeping cached assignment.\n",
+                   unsigned(index + 1));
+  }
   if (!slot.isNull()) {
     const String interpretation = redacted(String("product=") + (slot["productID"] | "unassigned") +
         " status=" + (slot["stock"]["currentStatus"] | "unassigned/unknown") +
@@ -355,6 +605,8 @@ void cloudWorker(void *) {
 
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(9600, SERIAL_8N1, 14, 13);  // UNO D12 -> divider -> RX; TX -> UNO D11.
+  sendLedModes(millis());  // All OFF until sensor baselines and assignments are known.
 #if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
   Serial0.begin(115200);
 #endif
@@ -363,6 +615,7 @@ void setup() {
                 RACK_OCCUPIED_WHEN_LOW ? "LOW" : "HIGH");
   rackLog.println("Slot 3 Hall input is GPIO 6. Serial Monitor: 115200 baud.");
   for (uint8_t pin : rack::kHallPins) pinMode(pin, INPUT_PULLUP);
+  setupLcd();  // Independent of cloud configuration; browsing works offline too.
   sensorMutex = xSemaphoreCreateMutex();
   if (!sensorMutex) {
     rackLog.println("FATAL: sensor mutex allocation failed; cloud disabled.");
@@ -401,6 +654,7 @@ void loop() {
       xSemaphoreTake(sensorMutex, portMAX_DELAY);
       const bool rawChanged = !sensors[i].initialized || sensors[i].rawOccupied != occupied;
       const bool changed = rack::sample(sensors[i], occupied, now, RACK_STABLE_MS);
+      rack::observePlacement(ledAssignments[i], sensors[i]);
       const rack::Sensor current = sensors[i];
       xSemaphoreGive(sensorMutex);
       if (rawChanged && RACK_VERBOSE_SYNC)
@@ -418,6 +672,8 @@ void loop() {
       }
     }
   }
+  sendLedModes(now);
+  serviceLcd(now);
   delay(1);  // Yield to FreeRTOS, never wait for Wi-Fi/HTTP in this loop.
 }
 #endif  // RACK_LOGIC_TEST
