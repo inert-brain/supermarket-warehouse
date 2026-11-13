@@ -78,10 +78,10 @@ Repeated sensor reports refresh observation time but should not duplicate transi
 
 ### Phone scan rules — deliberately relaxed MVP
 
-After container lookup, an empty description requires a second product barcode scan. The app validates `shopping-cart/{productCode}` in Firestore and writes the exact ID to `stocks.description` through `SaveContainerProduct`. Existing descriptions are retained unless staff select Change product. Firestore path is user-confirmed but not live-verified. Deploy the mutation before using the flow.
+After container lookup, an empty description requires a second product barcode scan. The app writes the exact scanned barcode directly to `stocks.description` through `SaveContainerProduct`, without a Firestore lookup or automatic read-back. Existing descriptions are retained unless staff select Scan product. Deploy the mutation before using the flow.
 
 - Read product by barcode. Explicit not-found → RegisterScannedProduct, then reread. Existing records stay unchanged. New records have null description/expiry.
-- **Phone-side policy:** valid expiry OR no expiry can continue. Missing expiry shows a warning alert once per scan; expired products are blocked for normal assignment/dispatch. After a valid inventory snapshot, the app attempts one REMOVED log per deliberate scan; failures/uncertain responses are not automatically retried. Use the phone's local calendar date; valid through the expiry day. No GPS or separate store timezone setting.
+- **Phone-side policy:** valid expiry OR no expiry can continue. Expiry popups, confirmation warnings, and expiry detail text are hidden in the app; expired products are blocked for normal assignment/dispatch. After a valid inventory snapshot, the app attempts one REMOVED log per deliberate scan; failures/uncertain responses are not automatically retried. Use the phone's local calendar date; valid through the expiry day. No GPS or separate store timezone setting.
 - Assigned slot with isOccupied=true → show **Already in Slot X / On rack**, no picker/location action.
 - Otherwise show 4×2 slot picker. Unassigned false/null occupancy → green/selectable. Known occupied or assigned to another product → unavailable. Own slot is a no-op.
 - **Current UI/cloud discrepancy:** the UI enables initial assignment for an unbound nonexpired product regardless of stock status, but AssignProductToSlot in the cloud accepts only EMPTY. Unbound OCCUPIED/PENDING_DISPATCH fixtures can therefore show a choice and then be rejected; do not describe that case as working end to end.
@@ -107,9 +107,9 @@ Operations use direct SDK calls or REST predefined-operation endpoints. Mutation
 - Sample ~20 ms; debounce ~300 ms. Startup waits for a stable baseline and usable cloud configuration/Wi-Fi/TLS clock. Reports become due on changes/reconnect and ~5 seconds after a slot's completed attempt, with a 1-second per-slot minimum retry interval. Requests are sequential: these are targets, not guaranteed latency. Network worker must not block sampling. Report booleans only, never auto-dispatch.
 - Serial Monitor **115200**; diagnostic heartbeat/raw snapshot every 2 seconds, raw edges controlled by RACK_VERBOSE_SYNC. Firebase SEND is an attempt; OK validates the mutation response, not independent read-back. Native USB may need USB CDC On Boot enabled. Current checked-in sketch has empty Wi-Fi SSID and CA, so it is not cloud-ready until edited; an empty Wi-Fi password is allowed. Missing required settings disable cloud, not sensor logs.
 - Verified TLS needs trusted PEM root(s), Wi-Fi, and NTP clock setup. This clock setup is not expiry logic. **ArduinoJson 7 and hd44780 are required to compile the current sketch**, even without LCD hardware; ESP32 core supplies the other libraries. LCD hardware initialization failure is tolerated.
-- UNO drives D2–D9 LEDs; ESP32 sends `L:01200000\n` at 9600 baud via GPIO13→UNO D11. 0=off, 1=on, 2=blink. **Current protocol is one-way, with no acknowledgments.** UNO D12→ESP32 GPIO14 is reserved; if connected, it needs the documented 5 V→3.3 V divider. USB cables alone are not this UART protocol.
+- UNO drives D2–D9 LEDs; ESP32 sends `L:01200000\n` at 9600 baud via GPIO13→UNO D11. 0=off, 1=on, 2=blink. **UNO replies now report applied LED modes and boot/watchdog state.** UNO D12→ESP32 GPIO14 needs the documented 5 V→3.3 V divider. ESP32 prints diagnostics every two seconds and reports missing replies after three seconds; it continues operating independently. Physical LED health is not sensed. USB cables alone are not this UART protocol.
 - UNO LEDs: on=vacant/unassigned; off=occupied/awaiting first placement/unknown; blink=assigned product previously on-rack is now absent. Three-second command timeout turns LEDs off; buzzer inactive. Assignment metadata is RAM-cached from valid cloud responses, so assignment/dispatch changes reach LEDs after a response; cache can be stale offline and resets at reboot.
-- Implemented optional 16×2 LCD browser: I2C GPIO8/9; buttons GPIO11 previous, GPIO12 mode, GPIO10 next. It shows selected-slot container ID or assignment time, pages long IDs, and formats assignment time at fixed UTC+8 (display only, not expiry). Native LCD tests exist. Some older README/plan statements still call these peripherals out of scope; current sketch is authoritative.
+- Implemented optional 16×2 LCD browser: I2C GPIO8/9; buttons GPIO11 previous, GPIO12 mode, GPIO10 next. The middle button cycles local Status, cached Container ID, cached Stock status, and assigned time. It pages long IDs, and formats assignment time at fixed UTC+8 (display only, not expiry). Native LCD tests exist. Some older README/plan statements still call these peripherals out of scope; current sketch is authoritative.
 - Verify real board settings, Hall polarity, and 3.3 V compatibility; some A3144 modules need different supply conditions. Never connect 5 V signals directly to S3 GPIO. Do not claim live hardware tests without performing them.
 
 ## Run, deploy, and validate
@@ -143,12 +143,33 @@ g++ -std=c++11 esp32/tests/lcd_logic_test.cpp -o /tmp/rack_lcd_test && /tmp/rack
 
 Dashboard: manual **Sync only**, complete paginated reads, metrics/graphs/slot monitor/tables. Retain last complete snapshot on failure. Activities show event counts, not reconstructed historical stock balances. Only records read by Sync are displayed; no inventory edits.
 
+Predictions tab is a labeled static demo: seven sample demand days plus a fixed
+three-day forecast overlay for Milk (5/day), Cereal (3/day), or Juices (4/day).
+It reads no live prediction data and changes no inventory.
+
 Dashboard also has a **Shelves** tab with independent **Sync shelves**, reading
 Firestore `(default)` / `products/SHELF_*` in `mart-parking-fdd6b` (override with
 `FIRESTORE_PROJECT`). It displays saved shelf counters and fields, retains its last
 snapshot on errors, and uses existing public Firestore read rules without admin
 credentials. It does not write to Firestore or change warehouse stock logic.
 
+Overview shows shelf alerts at the top using the shared shelf snapshot: SHELF_01
+Milk, SHELF_02 Cereal, SHELF_03 Juices. `remaining <= 1` triggers a red alert (0 is
+out of stock); `capacity` does not determine low stock. **Sync shelf alerts** and
+**Sync shelves** refresh the same data; unknown counts are never treated as zero.
+
+Slot monitor barcode buttons resolve the stock description against the `barcode`
+field in Firestore `shoppingCartWorkspaces/shopping-cart/products`, with document-ID
+fallback for saved Pxxx IDs. P003 was verified to have barcode DEMO003. Reads occur
+only on click and display the matched product ID/name/fields; app barcode saving
+remains a direct description write without a catalog lookup.
+
 Deployment is separate from source edits; operation-not-found usually means missing deployment or mismatched project/service/connector. Expired CLI login: firebase login --reauth. Never reset tables as a deployment fix. Check actual cloud state rather than claiming it matches local files.
 
 Known maintenance issues: Firebase emulator tests import `pg` from deleted `app/backend/node_modules/pg`, retain the old database/service names, and use stale generated SDK connector configuration. Supply an independent test dependency and align/regenerate targets before running them. Do not recreate the old backend service to satisfy the import. Some app/cloud READMEs still describe unknown expiry or null dispatch occupancy as blocked; current code permits them. Native firmware tests exclude Arduino/network code and do not validate physical timing/wiring. This audit ran no tests/deployments; historical results do not prove current source, deployed Firebase, or hardware behavior.
+
+Product scanning pauses at **Prepare product**. Move the container label away and tap **Start product scan** to enable the camera for the second barcode. Repeat scans of the selected container are ignored.
+
+LCD navigation logs `[LCD BUTTON]` events to the ESP32 Serial Monitor; GPIO11 is previous, GPIO12 cycles details, and GPIO10 is next. Cached stock status is refreshed from existing occupancy responses, with no extra cloud queries.
+
+App expiry prompts are removed from scanning and staff confirmations. Stored expiry dates, expiry eligibility checks, and expired-scan logging remain in place; this change affects presentation only.

@@ -25,7 +25,9 @@ int main() {
   for (const char *bad : {"L:111\n", "X:11111111\n", "L:11111113\n",
                           "L:111111111\n", "L:11111111\r\n",
                           "garbageL:11111111\n", "\n"}) {
+    const uint32_t previousRejected = d.rejectedFrames;
     assert(!feed(d, bad, 200));
+    assert(d.rejectedFrames == previousRejected + 1);
     assert(d.lastValid == 100);
     assert(d.modes[0] == '0' && d.modes[2] == '2');
   }

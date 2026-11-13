@@ -634,10 +634,36 @@ inline char ledMode(const LedAssignment &a, const Sensor &s) {
   return a.previouslyOnRack ? '2' : '0';
 }
 
+inline bool ledFrameDue(bool sent, bool changed, uint32_t elapsed) {
+  // 11-byte command + 11-byte SoftwareSerial reply take about 23 ms at 9600.
+  // Leave turnaround time instead of sending on every rapid slot change.
+  return !sent || (elapsed >= 50u && (changed || elapsed >= 1000u));
+}
+
 // Button bits: back=1, mode=2, next=4. One event per debounced press.
+enum class SlotPage : uint8_t { Status, Container, Stock, AssignedTime, Count };
+
+inline const char *pageTitle(SlotPage page) {
+  switch (page) {
+    case SlotPage::Container: return "Container";
+    case SlotPage::Stock: return "Stock";
+    case SlotPage::AssignedTime: return "Time +08";
+    default: return "Status";
+  }
+}
+
+inline const char *slotStatusText(const Sensor &sensor, const LedAssignment &assignment) {
+  if (!sensor.baselineReady) return "Reading sensor";
+  if (sensor.stableOccupied)
+    return assignment.known && !assignment.assigned ? "Unidentified" : "Occupied";
+  if (!assignment.known) return "Sync pending";
+  if (!assignment.assigned) return "Free slot";
+  return assignment.previouslyOnRack ? "Off-rack" : "Await placement";
+}
+
 struct SlotBrowser {
   size_t slot = 0;
-  bool showTime = false;
+  SlotPage page = SlotPage::Status;
   uint8_t candidate = 0;
   uint8_t stable = 0;
   bool blocked = false;
@@ -656,7 +682,7 @@ struct SlotBrowser {
     stable = pressed;
     if (!pressed || blocked) return false;
     if (pressed == 1) slot = (slot + kSlotCount - 1) % kSlotCount;
-    else if (pressed == 2) showTime = !showTime;
+    else if (pressed == 2) page = static_cast<SlotPage>((static_cast<uint8_t>(page) + 1) % static_cast<uint8_t>(SlotPage::Count));
     else if (pressed == 4) slot = (slot + 1) % kSlotCount;
     else return false;
     pageSince = now;
@@ -744,6 +770,43 @@ inline void browserDetail(char (&out)[17], bool known, bool assigned, bool showT
     lcdRow(out, assignedTimeText(content, timestamp) ? timestamp : "Time unavailable");
   else lcdRow(out, content, pageElapsed / 1000u);
 }
+struct UnoStatus {
+  char line[10] = {};
+  size_t length = 0;
+  bool discard = false;
+  bool seen = false;
+  char state = 'W';
+  char modes[9] = "00000000";
+  uint32_t lastReply = 0;
+
+  bool consume(char value, uint32_t now) {
+    if (value != '\n') {
+      if (length < sizeof(line)) line[length++] = value;
+      else discard = true;
+      return false;
+    }
+    const size_t size = length;
+    length = 0;
+    const bool overflow = discard;
+    discard = false;
+    if (overflow) return false;
+    char next = 0;
+    if (size == 10 && line[0] == 'A' && line[1] == ':') {
+      for (size_t i = 2; i < 10; ++i)
+        if (line[i] < '0' || line[i] > '2') return false;
+      memcpy(modes, line + 2, 8);
+      next = 'A';
+    } else if (size == 6 && memcmp(line, "U:WAIT", 6) == 0) next = 'W';
+    else if (size == 9 && memcmp(line, "U:TIMEOUT", 9) == 0) next = 'T';
+    if (!next) return false;
+    state = next;
+    seen = true;
+    lastReply = now;
+    return true;
+  }
+
+  bool online(uint32_t now) const { return seen && uint32_t(now - lastReply) < 3000u; }
+};
 }  // namespace rack
 
 #ifndef RACK_LOGIC_TEST
@@ -778,31 +841,107 @@ rack::Sensor sensors[rack::kSlotCount];
 rack::LedAssignment ledAssignments[rack::kSlotCount];
 String assignedContainerIDs[rack::kSlotCount];  // Protected by sensorMutex too.
 String assignedAtTimes[rack::kSlotCount];  // Distinguish a new assignment of the same box.
+String cachedStockStatuses[rack::kSlotCount];
 SemaphoreHandle_t sensorMutex = nullptr;
 TaskHandle_t cloudTask = nullptr;
 hd44780_I2Cexp rackLcd;  // Auto-detect backpack address and pin mapping.
 rack::SlotBrowser browser;
 bool lcdReady = false;
+const char *lcdDiagnostic = "BOOT";
+uint8_t lcdAddress = 0;
+uint32_t lcdScreenGeneration = 0;
 constexpr uint8_t kPrevPin = 11, kModePin = 12, kNextPin = 10;
 
 void setupLcd() {
   for (uint8_t pin : {kPrevPin, kModePin, kNextPin}) pinMode(pin, INPUT_PULLUP);
-  Wire.begin(8, 9, 100000);
+  rackLog.println("[LCD D00] Testing I2C: SDA=GPIO8 SCL=GPIO9, 16x2 display.");
+  if (!Wire.begin(8, 9, 100000)) {
+    lcdDiagnostic = "E01";
+    rackLog.println("[LCD E01] I2C bus initialization failed.");
+    return;
+  }
   Wire.setTimeOut(10);  // Bound failed transactions on a disconnected/stuck bus.
+  uint8_t found = 0;
+  for (uint8_t address = 1; address < 127; ++address) {
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() == 0) {
+      ++found;
+      rackLog.printf("[LCD D01] I2C device detected at 0x%02X (not proof it is the LCD).\n", address);
+    }
+  }
+  if (!found) {
+    lcdDiagnostic = "E02";
+    rackLog.println("[LCD E02] No I2C device detected. Check LCD power, GND, SDA/SCL and pull-ups; then reset.");
+    return;
+  }
   const int status = rackLcd.begin(16, 2);
   lcdReady = status == 0;
-  if (!lcdReady) rackLog.printf("LCD: initialization failed (%d); rack continues without display.\n", status);
+  if (lcdReady) {
+    lcdAddress = uint8_t(rackLcd.getProp(hd44780_I2Cexp::Prop_addr));
+    ++lcdScreenGeneration;
+  }
+  lcdDiagnostic = lcdReady ? "OK" : "E03";
+  if (!lcdReady) rackLog.printf("[LCD E03] Device detected, but LCD initialization failed: library status=%d.\n", status);
+  else rackLog.println("[LCD OK] Initialization passed. Adjust contrast if blank. Send L to reinitialize. PREV=11 MODE=12 NEXT=10.");
 }
 
 void serviceLcd(uint32_t now) {
+  bool resetRequested = false;
+  for (uint8_t count = 0; count < 16 && Serial.available(); ++count) {
+    const int command = Serial.read();
+    if (command == 'L' || command == 'l') resetRequested = true;
+  }
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && ARDUINO_USB_CDC_ON_BOOT
+  for (uint8_t count = 0; count < 16 && Serial0.available(); ++count) {
+    const int command = Serial0.read();
+    if (command == 'L' || command == 'l') resetRequested = true;
+  }
+#endif
+  static uint32_t lastRetry = 0;
+  if (resetRequested || (!lcdReady && lcdAddress && uint32_t(now - lastRetry) >= 5000u)) {
+    lastRetry = now;
+    if (!lcdAddress) setupLcd(); // Full scan only on an explicit L command.
+    else {
+      Wire.beginTransmission(lcdAddress);
+      if (Wire.endTransmission() == 0) {
+        const int status = rackLcd.begin(16, 2);
+        lcdReady = status == 0;
+        lcdDiagnostic = lcdReady ? "OK" : "E03";
+        if (lcdReady) ++lcdScreenGeneration;
+        rackLog.printf("[LCD RECOVERY] address=0x%02X status=%d | %s\n", lcdAddress, status,
+                       lcdReady ? "reinitialized; redrawing" : "will retry");
+      } else {
+        lcdReady = false;
+        lcdDiagnostic = "E02";
+      }
+    }
+  }
+  static uint32_t lastDiagnostic = 0;
+  if (uint32_t(now - lastDiagnostic) >= 5000u) {
+    lastDiagnostic = now;
+    rackLog.printf("[LCD STATUS] code=%s | display=%s | Slot %u %s\n", lcdDiagnostic,
+                   lcdReady ? "ready (send L if blank)" : "unavailable; retrying known address, or send L",
+                   unsigned(browser.slot + 1), rack::pageTitle(browser.page));
+  }
   const uint8_t pressed = (digitalRead(kPrevPin) == LOW ? 1 : 0) |
                           (digitalRead(kModePin) == LOW ? 2 : 0) |
                           (digitalRead(kNextPin) == LOW ? 4 : 0);
   const bool navigation = browser.poll(pressed, now);
+  if (navigation)
+    rackLog.printf("[LCD BUTTON] Slot %u | %s | display=%s\n", unsigned(browser.slot + 1),
+                   rack::pageTitle(browser.page), lcdReady ? "ready" : "unavailable");
   if (!lcdReady) return;
   static uint32_t lastRefresh = 0;
   static char desired[2][17] = {};
   static char displayed[2][17] = {};
+  static uint32_t renderedGeneration = 0;
+  static uint32_t lastRedraw = 0;
+  if (renderedGeneration != lcdScreenGeneration || uint32_t(now - lastRedraw) >= 5000u) {
+    // Repaint unchanged text too, detecting disconnection while the screen is idle.
+    memset(displayed, 0, sizeof(displayed));
+    renderedGeneration = lcdScreenGeneration;
+    lastRedraw = now;
+  }
   static String lastContent;
   static bool lastKnown = false, lastAssigned = false;
   if (navigation || !desired[0][0] || uint32_t(now - lastRefresh) >= 20u) {
@@ -813,7 +952,15 @@ void serviceLcd(uint32_t now) {
       xSemaphoreTake(sensorMutex, portMAX_DELAY);
       known = ledAssignments[browser.slot].known;
       assigned = ledAssignments[browser.slot].assigned;
-      content = browser.showTime ? assignedAtTimes[browser.slot] : assignedContainerIDs[browser.slot];
+      switch (browser.page) {
+        case rack::SlotPage::Status:
+          content = rack::slotStatusText(sensors[browser.slot], ledAssignments[browser.slot]);
+          break;
+        case rack::SlotPage::Container: content = assignedContainerIDs[browser.slot]; break;
+        case rack::SlotPage::Stock: content = cachedStockStatuses[browser.slot]; break;
+        case rack::SlotPage::AssignedTime: content = assignedAtTimes[browser.slot]; break;
+        default: break;
+      }
       xSemaphoreGive(sensorMutex);
     }
     if (content != lastContent || known != lastKnown || assigned != lastAssigned) {
@@ -823,22 +970,73 @@ void serviceLcd(uint32_t now) {
       lastAssigned = assigned;
     }
     char heading[17];
-    snprintf(heading, sizeof(heading), browser.showTime ? "Slot %u Time +08" : "Slot %u Container",
-             unsigned(browser.slot + 1));
+    snprintf(heading, sizeof(heading), "Slot %u %s", unsigned(browser.slot + 1), rack::pageTitle(browser.page));
     rack::lcdRow(desired[0], heading);
-    rack::browserDetail(desired[1], known, assigned, browser.showTime, content.c_str(),
-                         uint32_t(now - browser.pageSince));
+    if (browser.page == rack::SlotPage::Status)
+      rack::lcdRow(desired[1], content.length() ? content.c_str() : "Reading sensor");
+    else rack::browserDetail(desired[1], known, assigned, browser.page == rack::SlotPage::AssignedTime,
+                              content.c_str(), uint32_t(now - browser.pageSince));
   }
   // Update at most one dirty character per loop, with bounded I2C work. No clear/flicker.
   for (uint8_t row = 0; row < 2; ++row) {
     for (uint8_t col = 0; col < 16; ++col) {
       if (displayed[row][col] == desired[row][col]) continue;
-      if (rackLcd.setCursor(col, row) != 0 || rackLcd.write(uint8_t(desired[row][col])) != 1) {
+      const int cursorStatus = rackLcd.setCursor(col, row);
+      const size_t written = cursorStatus == 0 ? rackLcd.write(uint8_t(desired[row][col])) : 0;
+      if (cursorStatus != 0 || written != 1) {
         lcdReady = false;
-        rackLog.println("LCD: write failed; display disabled until restart, rack continues.");
+        lcdDiagnostic = cursorStatus != 0 ? "E04" : "E05";
+        rackLog.printf("[LCD %s] Write failed: row=%u col=%u cursorStatus=%d bytesWritten=%u. Will retry initialization.\n",
+                       lcdDiagnostic, row + 1, col + 1, cursorStatus, unsigned(written));
       } else displayed[row][col] = desired[row][col];
       return;
     }
+  }
+  static bool firstFrameReported = false;
+  if (!firstFrameReported) {
+    firstFrameReported = true;
+    rackLog.printf("[LCD D02] First screen sent: [%s] [%s]. Blank screen now suggests contrast/panel wiring; characters are not optically verified.\n",
+                   displayed[0], displayed[1]);
+  }
+}
+
+rack::UnoStatus unoStatus;
+char commandedLeds[9] = "00000000";
+
+void serviceUno(uint32_t now) {
+  for (uint8_t count = 0; count < 64 && Serial1.available(); ++count)
+    unoStatus.consume(static_cast<char>(Serial1.read()), now);
+  static uint32_t lastLog = 0;
+  if (uint32_t(now - lastLog) < 2000u) return;
+  lastLog = now;
+  if (strcmp(commandedLeds, "00000000") == 0 && sensorMutex) {
+    unsigned unknown = 0, occupied = 0, awaiting = 0;
+    xSemaphoreTake(sensorMutex, portMAX_DELAY);
+    for (size_t i = 0; i < rack::kSlotCount; ++i) {
+      if (!sensors[i].baselineReady) ++unknown;
+      else if (sensors[i].stableOccupied) ++occupied;
+      else if (!ledAssignments[i].known) ++unknown;
+      else if (ledAssignments[i].assigned && !ledAssignments[i].previouslyOnRack) ++awaiting;
+    }
+    xSemaphoreGive(sensorMutex);
+    rackLog.printf("[LED WHY] ALL-OFF command | occupied=%u unknown-sensor/assignment=%u awaiting-placement=%u\n",
+                   occupied, unknown, awaiting);
+  }
+  if (!unoStatus.online(now)) {
+    rackLog.printf("[UNO LED] %s | commanded=%s | check UNO power, firmware, D12 divider -> GPIO14, common GND.\n",
+                   unoStatus.seen ? "NO RECENT REPLY" : "NO REPLY YET", commandedLeds);
+  } else if (unoStatus.state != 'A') {
+    rackLog.printf("[UNO LED] %s | commanded=%s\n",
+                   unoStatus.state == 'T' ? "COMMAND TIMEOUT: UNO forced all LEDs OFF" : "UNO BOOTED: waiting for LED command", commandedLeds);
+  } else {
+    rackLog.printf("[UNO LED] RESPONDING | commanded=%s applied=%s | %s | reply age=%lu ms\n",
+                   commandedLeds, unoStatus.modes,
+                   strcmp(commandedLeds, unoStatus.modes) == 0 ? "MODES MATCH" : "AWAITING MATCHING REPLY",
+                   static_cast<unsigned long>(uint32_t(now - unoStatus.lastReply)));
+    rackLog.print("[UNO SLOTS] ");
+    for (size_t i = 0; i < rack::kSlotCount; ++i)
+      rackLog.printf("S%u=%s ", unsigned(i + 1), unoStatus.modes[i] == '1' ? "ON" : unoStatus.modes[i] == '2' ? "BLINK" : "OFF");
+    rackLog.println("(reported modes; physical LEDs are not sensed)");
   }
 }
 
@@ -853,10 +1051,11 @@ void sendLedModes(uint32_t now) {
       frame[i + 2] = rack::ledMode(ledAssignments[i], sensors[i]);
     xSemaphoreGive(sensorMutex);
   }
-  if (!sent || memcmp(previous, frame + 2, rack::kSlotCount) != 0 ||
-      uint32_t(now - lastSent) >= 1000u) {
+  if (rack::ledFrameDue(sent, memcmp(previous, frame + 2, rack::kSlotCount) != 0,
+                         uint32_t(now - lastSent))) {
     Serial1.write(reinterpret_cast<const uint8_t *>(frame), sizeof(frame) - 1);
     memcpy(previous, frame + 2, rack::kSlotCount);
+    memcpy(commandedLeds, frame + 2, rack::kSlotCount);
     lastSent = now;
     sent = true;
   }
@@ -1029,6 +1228,7 @@ bool reportSlot(size_t index, const rack::Sensor &before) {
                            cloudPreviouslyOnRack, sensors[index]);
     assignedContainerIDs[index] = identity;
     assignedAtTimes[index] = assignmentTime;
+    cachedStockStatuses[index] = assigned ? status : "";
     xSemaphoreGive(sensorMutex);
   } else {
     rackLog.printf("LED: slot %u invalid assignment response; keeping cached assignment.\n",
@@ -1128,14 +1328,14 @@ void loop() {
                    static_cast<unsigned long>(now),
                    WiFi.status() == WL_CONNECTED ? "connected" : "disconnected",
                    cloudTask ? "running" : "disabled (check settings)");
-    rackLog.print("[HALL SNAPSHOT] ");
     for (size_t i = 0; i < rack::kSlotCount; ++i) {
       const bool low = digitalRead(rack::kHallPins[i]) == LOW;
-      rackLog.printf("S%u(GPIO%u)=%s/%s ", unsigned(i + 1), rack::kHallPins[i],
+      const rack::Sensor current = sensorMutex ? sensorSnapshot(i) : rack::Sensor{};
+      rackLog.printf("[HALL] Slot %u | GPIO %u=%s | magnet=%s | stable=%s\n", unsigned(i + 1), rack::kHallPins[i],
                      low ? "LOW" : "HIGH",
-                     low == RACK_OCCUPIED_WHEN_LOW ? "detected" : "not-detected");
+                     low == RACK_OCCUPIED_WHEN_LOW ? "detected" : "not-detected",
+                     current.baselineReady ? (current.stableOccupied ? "OCCUPIED" : "VACANT") : "WAITING");
     }
-    rackLog.println();
   }
   if (sensorMutex && uint32_t(now - lastSample) >= RACK_SAMPLE_MS) {
     lastSample = now;
@@ -1163,6 +1363,7 @@ void loop() {
     }
   }
   sendLedModes(now);
+  serviceUno(now);
   serviceLcd(now);
   delay(1);  // Yield to FreeRTOS, never wait for Wi-Fi/HTTP in this loop.
 }

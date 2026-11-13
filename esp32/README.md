@@ -172,13 +172,13 @@ Buttons connect GPIO to GND using internal pull-ups:
 | Button | GPIO | Action |
 |---|---|---|
 | Back / PREV | 11 | Previous slot; 1 wraps to 8 |
-| Middle / MODE | 12 | Toggle Container ID / Assigned time |
+| Middle / MODE | 12 | Cycle Status / Container ID / Stock / Assigned time |
 | Next / NEXT | 10 | Next slot; 8 wraps to 1 |
 
-Startup selects slot 1, Container ID view. Changing slots retains the view.
+Startup selects slot 1, Status view. Changing slots retains the view.
 Presses are debounced for 30 ms; holding does not repeat, and simultaneous
 presses are ignored until released. Row 1 identifies the slot/field; row 2 shows
-the container ID or assignment date/time in Philippine time (UTC+8), formatted
+local slot status, cached container ID, cached stock status, or assignment date/time in Philippine time (UTC+8), formatted
 `YYYY-MM-DD HH:mm`. Container IDs longer than 16 characters page every second.
 Navigation or changed product data restarts paging.
 
@@ -187,8 +187,9 @@ Unknown assignments show `Sync pending`, confirmed unassigned slots show
 cached assignments, refreshed by successful existing Firebase responses. Browsing
 continues offline with cached data; reboot clears the cache and selection.
 
-LCD setup runs once. Initialization or write failure logs an error and disables
-the display until restart, while sensor sampling, LED commands and Firebase
+LCD setup runs at boot. After a write failure, the previously detected LCD address
+is retried every five seconds. Send `L` in Serial Monitor to reinitialize manually
+(and scan again if no address was detected). Sensor sampling, LED commands and Firebase
 continue. I2C transactions have a 10 ms timeout. Updates write one changed
 character per loop, without repeatedly clearing the screen.
 
@@ -235,3 +236,45 @@ receipts, first placement, lift/return with retained assignment, unassigned
 occupancy, unchanged heartbeat timestamps without new events, simultaneous slots,
 slow requests, Wi-Fi loss/reconnect, and a lost response. No live endpoint,
 certificate-chain, physical-board, or end-to-end validation is claimed here.
+
+## UNO LED diagnostics
+
+Upload the updated UNO sketch as well. At 115200 baud the ESP32 prints `[UNO LED]` and `[UNO SLOTS]` every two seconds. A valid reply shows applied ON/OFF/BLINK modes and whether they match the latest command. Missing replies are reported after three seconds. The ESP32 still works without UNO.
+
+Connect UNO D12 through the 1kΩ/2kΩ voltage divider to ESP32 GPIO14 and share GND. Never connect the 5V UNO TX directly to the ESP32. Reports confirm communication and mode application, not physical LED operation.
+
+Buttons also print `[LCD BUTTON] Slot N | view` in Serial Monitor at 115200 baud, even if LCD initialization failed. The Status page uses local Hall readings plus cached bindings. Stock status and container IDs are the last confirmed Firebase values, not new queries made by a button press. Connect the buttons to GND; keep the documented LCD 3.3V pull-ups and remove 5V pull-ups.
+
+## LCD diagnostic codes
+
+Open the **ESP32** port's Serial Monitor at **115200**, then press RESET/EN.
+The LCD is on ESP32 GPIO8/9; the UNO monitor cannot show its diagnostics.
+
+| Code | Meaning |
+|---|---|
+| D00 | Starting the I2C test |
+| D01 | I2C device acknowledged at the printed address; not necessarily the LCD |
+| E01 | I2C bus could not start |
+| E02 | No I2C devices acknowledged; check power, GND, SDA/SCL and pull-ups |
+| E03 | LCD initialization failed; raw library status is also printed |
+| OK | LCD initialization succeeded |
+| E04 | Setting the cursor failed |
+| E05 | Writing a display character failed |
+| D02 | The first two display rows were sent successfully |
+
+`[LCD STATUS]` repeats the current code every five seconds. If OK/D02 appear but
+no characters are visible, adjust the backpack contrast potentiometer and inspect
+its solder connections. Software acknowledgments cannot verify visible characters.
+Send `L` in Serial Monitor after correcting wiring to retry initialization, or reset the ESP32. Keep all ESP32
+I2C signals at 3.3V as documented in component_connections.md.
+
+If the display blanks after working: it is repainted every five seconds, and detected write errors trigger reinitialization of the known address. Send `L` (115200 baud, ESP32 port) to force reinitialization even if communication still appears OK. Repeated recovery messages suggest a wiring, power, or I2C-level issue; software cannot verify contrast or visible pixels.
+
+Intermittent LED diagnostics: an `[LED WHY]` line explains all-OFF commands using
+occupied, unknown, and awaiting-placement counts. Unknown bindings after reboot
+remain OFF until Firebase confirms them; temporary cloud failures keep the RAM
+cache. LED frames are spaced at least 50 ms apart for UNO SoftwareSerial turnaround;
+unchanged modes still refresh every second. This addresses a possible serial
+collision, not proof of the cause of a physical all-off event. Check the UNO's
+`lastCmd`, `D2-D9`, command age, bad-frame count and receive-overflow count during
+an actual failure.

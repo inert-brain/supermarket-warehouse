@@ -147,11 +147,11 @@ test('false/null bound and unassigned OCCUPIED stock show picker; reservations a
     assert.equal(ui.slots()[3].props.disabled, true);
     assert.equal(ui.slots()[4].props.disabled, true);
     const dispatchReady = assigned;
-    assert.equal(/Departure requires/.test(ui.text()), !dispatchReady);
-    assert.equal(ui.buttons().find(button => button.props.title.startsWith('Remove Product')).props.disabled, !dispatchReady);
+    assert.equal(/Dispatch is unavailable/.test(ui.text()), !dispatchReady);
+    assert.equal(ui.buttons().find(button => button.props.title === 'Dispatch').props.disabled, !dispatchReady);
     if (assigned) assert.match(ui.text(), isOccupied === null ? /Occupancy unknown/ : /Off rack/);
     ui.slots()[0].props.onPress(); await ui.flush();
-    assert.equal(ui.alerts[0][1].includes('Warning: expiry'), expiry === 'unknown');
+    assert.equal(ui.alerts[0][1].includes('Warning: expiry'), false);
     ui.alerts[0][2][1].onPress(); await ui.flush();
     assert.equal(ui.sent.length, 1);
     assert.equal(ui.sent[0].action, assigned ? 'ChangeAssignedSlot' : 'AssignProductToSlot');
@@ -166,12 +166,12 @@ test('all stock statuses allow vacant or unknown dispatch and remain explicitly 
     const value = fixture(); value.product.status = status; value.product.expiry = expiry;
     Object.assign(value.slots[2], { containerID: '001', assignedAt: 'now', status, isOccupied, occupancyUpdatedAt: '2000-01-01T00:00:00Z' });
     const ui = screen(value); await ui.flush();
-    const dispatch = ui.buttons().find(button => button.props.title.startsWith('Remove Product'));
+    const dispatch = ui.buttons().find(button => button.props.title === 'Dispatch');
     assert.equal(dispatch.props.disabled, false);
     assert.equal(ui.sent.length, 0);
     dispatch.props.onPress(); await ui.flush();
     assert.match(ui.alerts[0][1], /left the warehouse/);
-        assert.equal(ui.alerts[0][1].includes('Warning: expiry'), expiry === 'unknown');
+        assert.equal(ui.alerts[0][1].includes('Warning: expiry'), false);
     assert.equal(ui.sent.length, 0);
     ui.alerts[0][2][1].onPress(); ui.alerts[0][2][1].onPress(); await ui.flush();
     assert.equal(ui.sent.length, 1);
@@ -204,7 +204,7 @@ test('expired expiry cannot assign or dispatch with relaxed occupancy', async ()
     Object.assign(value.slots[0], { containerID: '001', assignedAt: 'now', status: 'EMPTY', isOccupied: false });
     const ui = screen(value); await ui.flush();
     assert.equal(ui.slots().every(slot => slot.props.disabled), true);
-    assert.equal(ui.buttons().find(button => button.props.title.startsWith('Remove Product')).props.disabled, true);
+    assert.equal(ui.buttons().find(button => button.props.title === 'Dispatch').props.disabled, true);
     assert.equal(ui.sent.length, expiry === 'expired' ? 1 : 0);
     if (expiry === 'expired') assert.equal(ui.sent[0].action, 'RecordExpiredScan');
     ui.unmount();
@@ -271,7 +271,7 @@ test('sensor return without rescan disables dispatch and exposes no manual take-
   const value = fixture(); value.product.status = 'PENDING_DISPATCH';
   Object.assign(value.slots[0], { containerID: '001', assignedAt: 'now', status: 'PENDING_DISPATCH' });
   const ui = screen(value); await ui.flush();
-  const dispatch = () => ui.buttons().find(button => button.props.title.startsWith('Remove Product'));
+  const dispatch = () => ui.buttons().find(button => button.props.title === 'Dispatch');
   assert.equal(dispatch().props.disabled, false);
   assert.equal(ui.buttons().some(button => /Take off|Return/.test(button.props.title)), false);
   value.product.status = 'OCCUPIED'; Object.assign(value.slots[0], { status: 'OCCUPIED', isOccupied: true });

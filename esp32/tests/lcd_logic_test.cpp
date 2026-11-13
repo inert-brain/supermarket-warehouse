@@ -6,7 +6,7 @@
 
 void navigation() {
   rack::SlotBrowser b;
-  assert(b.slot == 0 && !b.showTime);
+  assert(b.slot == 0 && b.page == rack::SlotPage::Status);
   assert(!b.poll(1, 100));
   assert(!b.poll(0, 110));  // Bounce.
   assert(!b.poll(1, 120));
@@ -15,10 +15,10 @@ void navigation() {
   assert(!b.poll(1, 5000) && b.slot == 7);  // No hold repeat.
   b.poll(0, 5010); b.poll(0, 5040);
   b.poll(2, 5050);
-  assert(b.poll(2, 5080) && b.showTime);
+  assert(b.poll(2, 5080) && b.page == rack::SlotPage::Container);
   b.poll(0, 5090); b.poll(0, 5120);
   b.poll(4, 5130);
-  assert(b.poll(4, 5160) && b.slot == 0 && b.showTime);
+  assert(b.poll(4, 5160) && b.slot == 0 && b.page == rack::SlotPage::Container);
   assert(b.pageSince == 5160);
   b.poll(0, 5170); b.poll(0, 5200);
   b.poll(3, 5210);
@@ -27,13 +27,37 @@ void navigation() {
   assert(!b.poll(1, 5280) && b.slot == 0);
   b.poll(0, 5290); b.poll(0, 5320);
   b.poll(2, 5330);
-  assert(b.poll(2, 5360) && !b.showTime);
+  assert(b.poll(2, 5360) && b.page == rack::SlotPage::Stock);
+  b.poll(0, 5370); b.poll(0, 5400);
+  b.poll(2, 5410);
+  assert(b.poll(2, 5440) && b.page == rack::SlotPage::AssignedTime);
+  b.poll(0, 5450); b.poll(0, 5480);
+  b.poll(2, 5490);
+  assert(b.poll(2, 5520) && b.page == rack::SlotPage::Status);
 
   rack::SlotBrowser wrap;
   const uint32_t start = std::numeric_limits<uint32_t>::max() - 10;
   assert(!wrap.poll(4, start));
   assert(!wrap.poll(4, uint32_t(start + 29)));
   assert(wrap.poll(4, uint32_t(start + 30)) && wrap.slot == 1);
+}
+
+void slotStatus() {
+  rack::Sensor sensor;
+  rack::LedAssignment assignment;
+  assert(strcmp(rack::slotStatusText(sensor, assignment), "Reading sensor") == 0);
+  sensor.baselineReady = true;
+  assert(strcmp(rack::slotStatusText(sensor, assignment), "Sync pending") == 0);
+  assignment.known = true;
+  assert(strcmp(rack::slotStatusText(sensor, assignment), "Free slot") == 0);
+  sensor.stableOccupied = true;
+  assert(strcmp(rack::slotStatusText(sensor, assignment), "Unidentified") == 0);
+  assignment.assigned = true;
+  assert(strcmp(rack::slotStatusText(sensor, assignment), "Occupied") == 0);
+  sensor.stableOccupied = false;
+  assert(strcmp(rack::slotStatusText(sensor, assignment), "Await placement") == 0);
+  assignment.previouslyOnRack = true;
+  assert(strcmp(rack::slotStatusText(sensor, assignment), "Off-rack") == 0);
 }
 
 void timestamps() {
@@ -85,6 +109,6 @@ void rows() {
 }
 
 int main() {
-  navigation(); timestamps(); rows();
+  navigation(); slotStatus(); timestamps(); rows();
   std::cout << "PASS: LCD navigation, debounce, chords, wrap, Philippine timestamps, row padding/paging\n";
 }

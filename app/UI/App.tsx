@@ -3,8 +3,8 @@ import { palette } from './theme';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { readContainer, saveContainerProduct, validateReceiving, type ReceivingResult } from './receiving';
+import { ActivityIndicator, AppState, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { saveContainerProduct, validateReceiving, type ReceivingResult } from './receiving';
 import { LocationWorkflow } from './location/LocationWorkflow';
 
 
@@ -13,15 +13,22 @@ type LookupState =
   | { status: 'success'; result: ReceivingResult }
   | { status: 'error'; message: string };
 
+function hasProduct(result: ReceivingResult) {
+  const description = result.product.description?.trim();
+  return !!description && description !== result.product.containerID.trim();
+}
+
 export default function App() {
   const [permission, requestPermission, getPermission] = useCameraPermissions();
   const [barcode, setBarcode] = useState<string | null>(null);
   const scanned = useRef(false);
-    const expiryWarned = useRef(false);
+  // Native camera events can arrive from a previous render. Route using the
+  // current phase, never the state captured by that old callback.
+  const scanner = useRef<{ phase: 'container' | 'product' | 'paused'; containerID: string | null }>({ phase: 'container', containerID: null });
   const request = useRef<AbortController | null>(null);
   const [lookup, setLookup] = useState<LookupState | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
-  const [productStep, setProductStep] = useState<'idle' | 'scanning' | 'saving' | 'error'>('idle');
+  const [productStep, setProductStep] = useState<'idle' | 'ready' | 'scanning' | 'saving' | 'error'>('idle');
   const [productError, setProductError] = useState('');
 
   useEffect(() => () => {
@@ -39,6 +46,8 @@ export default function App() {
   }, [getPermission]);
 
   async function lookupBarcode(value: string) {
+    scanner.current = { phase: 'paused', containerID: value };
+    scanned.current = true;
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
@@ -52,14 +61,10 @@ export default function App() {
       const result = await validateReceiving(value, controller.signal);
       if (request.current === controller && !controller.signal.aborted) {
         setLookup({ status: 'success', result });
-        if (!result.product.description && result.decision !== 'EXPIRED') {
-          scanned.current = false;
-          setProductStep('scanning');
+        if (!hasProduct(result) && result.decision !== 'EXPIRED') {
+          setProductStep('ready'); // Camera remains paused until staff are ready.
         } else setProductStep('idle');
-                if (result.decision === 'EXPIRY_UNKNOWN' && !expiryWarned.current) {
-                  expiryWarned.current = true;
-                  Alert.alert('Expiry unknown', 'Expiry is missing or invalid. You can continue assigning, reassigning, or dispatching this product. Check the physical product’s expiry when available.');
-                }
+
       }
     } catch (error) {
       if (request.current === controller && (!controller.signal.aborted || timedOut)) {
@@ -76,10 +81,14 @@ export default function App() {
   }
 
   function handleScan({ data }: BarcodeScanningResult) {
-    if (scanned.current) return;
+    const current = scanner.current;
+    if (scanned.current || current.phase === 'paused') return;
+    // The container may still be in front of the lens after phase one.
+    if (current.phase === 'product' && data.trim() === current.containerID?.trim()) return;
     scanned.current = true;
-    if (barcode !== null && productStep === 'scanning') {
-      void scanProduct(barcode, data);
+    scanner.current = { ...current, phase: 'paused' };
+    if (current.phase === 'product' && current.containerID !== null) {
+      void scanProduct(current.containerID, data);
       return;
     }
     setBarcode(data);
@@ -95,10 +104,10 @@ export default function App() {
     const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       await saveContainerProduct(containerID, code, controller.signal);
-      const fresh = await readContainer(containerID, controller.signal);
       if (request.current === controller && !controller.signal.aborted) {
-        if (fresh.product.description !== code) throw new Error('Saved product changed. Refresh the container before continuing.');
-        setLookup({ status: 'success', result: fresh });
+        setLookup(previous => previous?.status === 'success' && previous.result.product.containerID === containerID
+          ? { status: 'success', result: { ...previous.result, product: { ...previous.result.product, description: code } } }
+          : previous);
         setProductStep('idle');
       }
     } catch (error) {
@@ -116,6 +125,13 @@ export default function App() {
   function startProductScan() {
     if (locationBusy || productStep === 'saving') return;
     setProductError('');
+    scanner.current = { phase: 'paused', containerID: barcode };
+    scanned.current = true;
+    setProductStep('ready');
+  }
+
+  function armProductScanner() {
+    scanner.current = { phase: 'product', containerID: barcode };
     scanned.current = false;
     setProductStep('scanning');
   }
@@ -124,8 +140,8 @@ export default function App() {
     if (locationBusy || productStep === 'saving') return;
     request.current?.abort();
     request.current = null;
+    scanner.current = { phase: 'container', containerID: null };
     scanned.current = false;
-    expiryWarned.current = false;
     setLookup(null);
     setProductStep('idle');
     setProductError('');
@@ -163,8 +179,17 @@ export default function App() {
       <StatusBar style="dark" />
       <Text style={styles.kicker}>INVENTORY CONTROL / 08 SLOTS</Text>
       <Text accessibilityRole="header" style={styles.title}>THE RACK.</Text>
-      <Text style={styles.section}>{productStep === 'scanning' ? '02 / SCAN THE PRODUCT' : '01 / SCAN A CONTAINER'}</Text>
-      <Text style={styles.message}>Scan a retail barcode: Code 128, EAN-13, EAN-8, UPC-A, UPC-E or Code 39.</Text>
+      <Text style={styles.section}>{barcode === null ? '01 / SCAN A CONTAINER' :
+        lookup?.status === 'loading' ? '01 / CHECKING CONTAINER' :
+        lookup?.status === 'error' ? '01 / CONTAINER CHECK FAILED' :
+        productStep === 'saving' ? '02 / SAVING PRODUCT' :
+        productStep === 'error' ? '02 / PRODUCT CHECK FAILED' :
+        productStep === 'ready' ? '02 / PREPARE PRODUCT' :
+        productStep === 'scanning' ? '02 / SCAN THE PRODUCT' :
+        lookup?.status === 'success' && lookup.result.decision === 'EXPIRED' ? '03 / CONTAINER DETAILS' : '03 / CONTAINER READY'}</Text>
+      <Text style={styles.message}>{productStep === 'ready' ? 'Move the container label away. Point the camera at the product, then tap Start product scan.' :
+        productStep === 'scanning' ? `Container ${barcode} selected. Scan the product barcode.` :
+        barcode === null ? 'Scan a container barcode to begin.' : 'Your selected container is shown below.'}</Text>
       <CameraView
         style={styles.camera}
         facing="back"
@@ -181,7 +206,7 @@ export default function App() {
             {lookup?.status === 'loading' && (
               <View accessibilityRole="progressbar">
                 <ActivityIndicator />
-                <Text>Checking product and registering if missing…</Text>
+                <Text>Loading container…</Text>
               </View>
             )}
             {lookup?.status === 'error' && (
@@ -193,27 +218,22 @@ export default function App() {
             {lookup?.status === 'success' && (
               <>
                 {lookup.result.registered && (
-                  <Text style={styles.message}>New product registered. Description and expiry are not provided; you can continue with an expiry warning.</Text>
+                  <Text style={styles.message}>New container registered. Scan the product to fill it.</Text>
                 )}
-                <Text style={styles.label}>Decision: {lookup.result.decision}</Text>
-                <Text style={styles.message}>
-                  {lookup.result.decision === 'READY_FOR_PUTAWAY'
-                    ? 'Potentially eligible based on this device’s clock. Staff must verify before put-away; this does not record receipt.'
-                    : lookup.result.decision === 'EXPIRED'
-                      ? 'Expired: do not receive this product.'
-                      : 'Expiry unknown: warning only. You can continue assigning, reassigning, or dispatching; check the physical product’s expiry when available.'}
-                </Text>
+                <Text style={styles.label}>CONTAINER DETAILS</Text>
                 <Text>Container ID: {lookup.result.product.containerID}</Text>
                 <Text>Description: {lookup.result.product.description ?? 'Not provided'}</Text>
-                <Text>Expires on: {lookup.result.product.expiresOn ?? 'Unknown'}</Text>
-                {productStep === 'scanning' && <>
+                {(productStep === 'ready' || productStep === 'scanning') && <>
                   <Text style={styles.label}>Scan the product for container {barcode}</Text>
-                  {lookup.result.product.description && <Button title="Cancel product scan" onPress={() => { scanned.current = true; setProductStep('idle'); }} />}
+                  {!!lookup.result.product.description?.trim() && !hasProduct(lookup.result) &&
+                    <Text>The container barcode was saved as its contents. Scan the product to replace it.</Text>}
+                  {productStep === 'ready' && <Button title="Start product scan" onPress={armProductScanner} />}
+                  {hasProduct(lookup.result) && <Button title="Cancel product scan" onPress={() => { scanner.current.phase = 'paused'; scanned.current = true; setProductStep('idle'); }} />}
                 </>}
-                {productStep === 'saving' && <View accessibilityRole="progressbar"><ActivityIndicator /><Text>Checking and saving product…</Text></View>}
+                {productStep === 'saving' && <View accessibilityRole="progressbar"><ActivityIndicator /><Text>Saving product barcode…</Text></View>}
                 {productStep === 'error' && <><Text style={styles.message}>{productError}</Text><Button title="Refresh container" onPress={() => void lookupBarcode(barcode)} /></>}
                 {productStep === 'idle' && <>
-                  {lookup.result.decision !== 'EXPIRED' && <Button title="Change product" disabled={locationBusy} onPress={startProductScan} />}
+                  {lookup.result.decision !== 'EXPIRED' && <Button title="Scan product" disabled={locationBusy} onPress={startProductScan} />}
                   <LocationWorkflow key={barcode} containerID={barcode} onBusyChange={setLocationBusy} />
                 </>}
               </>

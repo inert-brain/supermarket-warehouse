@@ -145,7 +145,7 @@ export function LocationWorkflow({ containerID, adapter = locationAdapter, onBus
     setWorking(true);
     try {
       const command = makeCommand(snapshot, action, targetId);
-      const latest = await preflight(command);
+      await preflight(command);
       let open = true;
       const cancel = () => {
         if (open) { open = false; dismissConfirmation.current = null; release(); }
@@ -154,9 +154,7 @@ export function LocationWorkflow({ containerID, adapter = locationAdapter, onBus
       const description = action === 'DispatchProduct'
         ? 'Confirm this product has left the warehouse. This releases its reserved slot. Saved vacant occupancy may be old; check the physical product.'
         : `Assign ${containerID} to slot ${targetId}? This saves the assignment only, not placement or receipt. Place the scanned product there; the sensor cannot verify its identity.`;
-      const expiryWarning = latest.product.expiry === 'unknown'
-        ? 'Warning: expiry is missing or invalid. You can continue; check the physical product’s expiry when available.\n\n' : '';
-      Alert.alert('Staff confirmation', expiryWarning + description, [
+      Alert.alert('Staff confirmation', description, [
         { text: 'Cancel', style: 'cancel', onPress: cancel },
         { text: 'Confirm', onPress: () => {
           if (!open) return;
@@ -176,13 +174,11 @@ export function LocationWorkflow({ containerID, adapter = locationAdapter, onBus
   const onRack = source?.isOccupied === true;
 
   return <View style={styles.panel}>
-    <Text style={styles.heading}>02 / RACK ASSIGNMENT</Text>
+    <Text style={styles.heading}>03 / CONTAINER ACTIONS</Text>
     <Text>{message}</Text>
     {busy && <ActivityIndicator accessibilityLabel="Processing operation" />}
     {snapshot && <>
-      <Text>Stock: {snapshot.product.status} · Expiry: {snapshot.product.expiry}</Text>
-      {snapshot.product.expiry === 'expired' && <Text>Expired: receiving assignment and normal dispatch are blocked. Rejection logging does not clear stock or slots; disposal is not supported. Sensor returns still update stock.</Text>}
-      {snapshot.product.expiry === 'unknown' && <Text>Warning: expiry is missing or invalid. Assignment, reassignment, and dispatch are allowed; check the physical product’s expiry when available. Sensor transitions do not depend on phone expiry.</Text>}
+      <Text>Stock: {snapshot.product.status}</Text>
       {onRack ? <Text>Already in Slot {source.slotId} · On rack (last saved occupancy).</Text> : <>
         <Text>{source ? source.isOccupied === null ? 'Occupancy unknown' : 'Off rack' : 'Unassigned'} — choose a slot.</Text>
         <View style={styles.grid}>{[...snapshot.slots].sort((a, b) => a.slotId - b.slotId).map(slot => {
@@ -195,9 +191,9 @@ export function LocationWorkflow({ containerID, adapter = locationAdapter, onBus
             {slot.isOccupied === null && <Text>Occupancy unknown</Text>}
           </Pressable>;
         })}</View>
-        <Text>Saved occupancy may be old. Unknown occupancy is selectable for unassigned slots in this demo; it does not prove vacancy. Other products’ assignments remain reserved.</Text>
-        {!canDispatch(snapshot) && <Text>Departure requires a product that is not expired and a matching slot assignment that is not detected as occupied. Unknown occupancy is allowed for this demo; confirm the product has actually left.</Text>}
-        <Button title="Remove Product (external dispatch)" disabled={!adapter?.writesEnabled || busy || !canDispatch(snapshot)} onPress={() => void confirm('DispatchProduct')} />
+        <Text>Select a free slot. Reserved or occupied slots cannot be reassigned.</Text>
+        {!canDispatch(snapshot) && <Text>Dispatch is unavailable. Check the container assignment and current status.</Text>}
+        <Button title="Dispatch" disabled={!adapter?.writesEnabled || busy || !canDispatch(snapshot)} onPress={() => void confirm('DispatchProduct')} />
       </>}
     </>}
     <Button title={snapshot ? 'Refresh inventory' : 'Retry inventory'} disabled={busy} onPress={() => void reload()} />

@@ -1,6 +1,45 @@
 """Read-only shelf snapshots from Firestore products/SHELF_* documents."""
 from datetime import datetime, timezone
 import requests
+from urllib.parse import quote
+
+
+def fetch_product(code):
+    """Resolve a scanned barcode, or a saved Pxxx ID, within the workspace catalog."""
+    base = ('https://firestore.googleapis.com/v1/projects/mart-parking-fdd6b/'
+            'databases/(default)/documents/shoppingCartWorkspaces/shopping-cart')
+    try:
+        response = requests.post(base + ':runQuery', json={
+            'structuredQuery': {
+                'from': [{'collectionId': 'products'}],
+                'where': {'fieldFilter': {'field': {'fieldPath': 'barcode'}, 'op': 'EQUAL',
+                                          'value': {'stringValue': code}}},
+                'limit': 2,
+            }
+        }, timeout=(5, 20))
+        if response.status_code != 200:
+            raise ShelfReadError(f'Product read failed (HTTP {response.status_code}).')
+        payload = response.json()
+        if not isinstance(payload, list):
+            raise ValueError('Invalid product response')
+        matches = [entry['document'] for entry in payload if 'document' in entry]
+        if len(matches) > 1:
+            raise ShelfReadError(f'Multiple products have barcode {code}; check the catalog.')
+        if matches:
+            document = matches[0]
+        else:
+            # Older saved descriptions can contain the document ID (e.g. P003).
+            response = requests.get(base + '/products/' + quote(code, safe=''), timeout=(5, 20))
+            if response.status_code == 404:
+                raise ShelfReadError(f'No Firestore product found for {code}.')
+            if response.status_code != 200:
+                raise ShelfReadError(f'Product read failed (HTTP {response.status_code}).')
+            document = response.json()
+        fields = {key: decode(value) for key, value in document.get('fields', {}).items()}
+        fields['id'] = document['name'].rsplit('/', 1)[1]
+        return fields
+    except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
+        raise ShelfReadError('Could not load product information from Firestore.') from exc
 
 
 class ShelfReadError(Exception):
@@ -44,6 +83,8 @@ def fetch_shelves(project="mart-parking-fdd6b", session=None):
                      "where": {"compositeFilter": {"op": "AND", "filters": filters}},
                      "orderBy": [{"field": {"fieldPath": "__name__"}, "direction": "ASCENDING"}], "limit": 100}
             response = session.post(endpoint, json={"structuredQuery": query}, timeout=(5, 20))
+            if response.status_code == 429:
+                raise ShelfReadError("Firestore returned HTTP 429: shelf reads are being limited by a quota or request-rate limit. Wait before retrying and check Firestore usage in Firebase Console.")
             if response.status_code != 200:
                 raise ShelfReadError(f"Shelf read failed (HTTP {response.status_code}). Check project access and Firestore rules.")
             payload = response.json()

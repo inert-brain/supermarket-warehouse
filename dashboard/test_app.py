@@ -37,7 +37,7 @@ class AppTests(unittest.TestCase):
         with patch("requests.Session.post", side_effect=AssertionError("Unexpected Firebase read")) as post:
             app = AppTest.from_file(APP).run()
             self.assertFalse(app.exception)
-            self.assertIn("No data loaded. Click Sync.", [info.value for info in app.info])
+            self.assertTrue(any("Click Sync warehouse" in info.value for info in app.info))
             app.run()
             self.assertFalse(app.exception)
             post.assert_not_called()
@@ -132,6 +132,16 @@ class AppTests(unittest.TestCase):
             self.assertTrue(any("0s old at sync" in item.value for item in app.caption))
             self.assertEqual(fetch.call_count, 1)
             self.assertEqual(app.session_state["snapshot"], complete)
+
+    def test_demo_predictions_for_each_product(self):
+        app = AppTest.from_file(APP).run()
+        for product, daily in (("Milk", 5), ("Cereal", 3), ("Juices", 4)):
+            app.selectbox(key="prediction_product").select(product).run()
+            self.assertFalse(app.exception)
+            text = "\n".join(item.value for item in app.markdown)
+            self.assertIn(f"Forecast daily demand: {daily} units/day", text)
+            self.assertIn(f"Three-day total: {daily * 3} units", text)
+            self.assertTrue(any("not calculated from live inventory" in item.value for item in app.info))
 
     def test_empty_snapshot_renders(self):
         with patch("firebase_client.FirebaseClient.fetch_snapshot", return_value=snapshot(empty=True)):

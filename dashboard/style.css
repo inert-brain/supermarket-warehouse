@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Mono:wght@400;700&display=swap');
 :root {
   --ink: #161712; --paper: #e5e7e3; --panel: #f3f4ef; --canvas-text: #161712;
-  --lime: #d5ee46; --orange: #ff7847; --red: #d83227;
+  --lime: #d5ee46; --orange: #ff7847; --red: #d83227; --green: #86c99a;
   --line: 2px solid var(--ink); --shadow: 5px 5px 0 var(--ink);
 }
 .stApp { background: var(--paper); color: var(--canvas-text); font-family: 'Space Mono', monospace; }
@@ -28,11 +28,37 @@ h2 { border-bottom: 3px solid var(--ink); padding-bottom: .45rem; }
 [class*="st-key-slot-card-"] p, [class*="st-key-slot-card-"] [data-testid="stText"],
 [class*="st-key-prediction-panel"] p, [class*="st-key-about-panel"] p,
 [class*="st-key-about-note"] p, [data-testid="stMetric"] { color: var(--ink); }
+[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p,
+[data-testid="stMetricValue"], [data-testid="stMetricValue"] div,
+[data-testid="stTextInput"] label, [data-testid="stTextInput"] label p,
+[data-testid="stMultiSelect"] label, [data-testid="stMultiSelect"] label p,
+[data-testid="stNumberInput"] label, [data-testid="stNumberInput"] label p,
+[data-testid="stDateInput"] label, [data-testid="stDateInput"] label p,
+[data-testid="stSelectbox"] label, [data-testid="stSelectbox"] label p {
+  color: #000000 !important;
+}
+[data-testid="stTextInput"] input { color: #000000 !important; background: var(--panel) !important; caret-color: #000000; }
 [class*="st-key-slot-card-"] { border-top: 9px solid var(--lime) !important; }
+.slot-name { font-size: 1.8rem !important; font-weight: 900 !important; margin: 0 !important; }
+.slot-status-available { display: inline-block; background: var(--ink); color: var(--lime) !important;
+  font-size: .9rem; font-weight: 900; padding: .45rem .6rem; border: var(--line); border-radius: 3px; }
 [class*="st-key-shelf-card-"] { border-top: 9px solid var(--orange) !important; }
+[class*="st-key-shelf-card-"] p,
+[class*="st-key-shelf-card-"] h3,
+[class*="st-key-shelf-card-"] [data-testid="stMetricLabel"],
+[class*="st-key-shelf-card-"] [data-testid="stMetricValue"] { color: #000000 !important; }
+.product-info { margin: .6rem 0; padding: 1rem; background: var(--paper); border: var(--line); border-radius: 3px; color: var(--ink); }
+.product-info-label { font-size: .65rem; font-weight: 700; letter-spacing: .12em; border-bottom: var(--line); padding-bottom: .5rem; }
+.product-info h4 { font-size: 1.15rem; font-weight: 800; line-height: 1.35; margin: .75rem 0 .4rem; overflow-wrap: anywhere; }
+.product-info-price { font-size: 1.35rem; font-weight: 800; margin-bottom: .8rem; }
+.product-info dl { margin: 0; }
+.product-info dt { font-size: .7rem; font-weight: 700; margin-top: .65rem; opacity: .75; }
+.product-info dd { font-size: .85rem; margin: .15rem 0 0; overflow-wrap: anywhere; }
 [class*="st-key-slot-card-"] [data-testid="stText"] { white-space: pre-wrap; overflow-wrap: anywhere; }
 [class*="st-key-stock-alert-low"] { background: var(--red) !important; }
 [class*="st-key-stock-alert-low"] p { color: white !important; }
+[class*="st-key-stock-alert-shelf-ok-"] { background: var(--green) !important; }
+[class*="st-key-stock-alert-shelf-ok-"] p { color: #000000 !important; }
 [class*="st-key-stock-alert-normal"], [class*="st-key-about-note"] { background: var(--lime) !important; }
 [class*="st-key-prediction-panel"] { border-top: 12px solid var(--orange) !important; }
 .stButton > button { background: var(--lime); color: var(--ink); border: var(--line); border-radius: 3px;

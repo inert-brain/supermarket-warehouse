@@ -20,7 +20,23 @@ operate on the session snapshot. Closing the session loses the in-memory copy.
 
 ## Configuration
 
+### Demo predictions
+
+The Predictions tab overlays a fixed three-day forecast on seven days of sample
+demand for Milk, Cereal, or Juices. These are illustrative values, not live
+predictions. Changing the product makes no Firebase requests and never alters stock.
+
 ### Firestore shelves
+
+Overview starts with shelf stock alerts: Shelf 1 = Milk, Shelf 2 = Cereal, Shelf 3
+= Juices. A `remaining` count of 1 shows a red low-stock card; 0 shows out of stock.
+Missing counts display as unavailable. Click **Sync shelf alerts** in Overview or
+**Sync shelves** in Shelves to refresh the shared snapshot. These counts are not live.
+
+In Overview, click a container barcode in the slot monitor to load its product
+details. The saved stock description is matched to the `barcode` field under
+`shoppingCartWorkspaces/shopping-cart/products`; a saved document ID such as
+`P003` also works. Product information is read only on a button click.
 
 The **Shelves** tab reads `products/SHELF_*` documents from the default Firestore
 database in `mart-parking-fdd6b`. Click **Sync shelves** to refresh capacity,

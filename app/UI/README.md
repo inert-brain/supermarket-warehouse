@@ -93,4 +93,6 @@ Automated tests cover response validation, local date boundaries, injected looku
 
 ## Container product scan
 
-After a container scan, an empty description prompts a product barcode scan. The app checks `shopping-cart/{productCode}` in Firestore, then saves the exact product ID as the container stock description. Existing descriptions can be changed using **Change product**. Deploy `SaveContainerProduct` to Data Connect before using this flow. Product validation is client-side and requires Firestore read access.
+After a container scan, an empty description prompts a product barcode scan. The app saves the exact scanned barcode directly as the container stock description, without a product lookup or read-back query. Existing descriptions can be changed using **Scan product**. Deploy `SaveContainerProduct` to Data Connect before using this flow. No Firestore access is needed for this scan.
+
+Product scanning pauses at **Prepare product**. Move the container label away and tap **Start product scan** to enable the camera for the second barcode. Repeat scans of the selected container are ignored.
