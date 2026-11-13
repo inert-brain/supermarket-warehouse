@@ -20,6 +20,19 @@ operate on the session snapshot. Closing the session loses the in-memory copy.
 
 ## Configuration
 
+### Firestore shelves
+
+The **Shelves** tab reads `products/SHELF_*` documents from the default Firestore
+database in `mart-parking-fdd6b`. Click **Sync shelves** to refresh capacity,
+remaining, partial, purchased, removed, cart quantity, verified/unverified counts,
+initialization state, and update time. Expand **All shelf contents** for every saved
+field. Missing values display as Unknown; no stock quantities are inferred.
+
+Shelf reads use the project's current Firestore read rules, without admin credentials.
+Set `FIRESTORE_PROJECT` to override the project. If rules deny access, the tab shows
+an error and keeps the previous complete shelf snapshot. Shelf Sync is independent
+of warehouse Sync and never writes data. No additional package is required.
+
 Create `dashboard/.streamlit/secrets.toml` locally (ignored by Git):
 
 ```toml
@@ -55,9 +68,9 @@ only `dashboard/`, and does not compile, deploy, or migrate Firebase resources.
 
 | operationName | response array (`data`) | ascending key / nullable `after` type | fields |
 | --- | --- | --- | --- |
-| `DashboardStocks` | `stocks` | `productID` / `String` | productID, currentStatus, statusUpdatedAt, description, expiresOn |
-| `DashboardSlots` | `slots` | `slotId` / `Int` | slotId, productID, assignedAt, isOccupied, occupancyUpdatedAt |
-| `DashboardActivities` | `activities` | `activityId` / `Int` | activityId, productID, occurredAt, activityType |
+| `DashboardStocks` | `stocks` | `containerID` / `String` | containerID, currentStatus, statusUpdatedAt, description, expiresOn |
+| `DashboardSlots` | `slots` | `slotId` / `Int` | slotId, containerID, assignedAt, isOccupied, occupancyUpdatedAt |
+| `DashboardActivities` | `activities` | `activityId` / `Int` | activityId, containerID, occurredAt, activityType |
 
 **Coordinated cloud deployment prerequisite:** `Slot.isOccupied: Boolean` and
 `Slot.occupancyUpdatedAt: Timestamp` must be added as nullable fields and selected
@@ -120,7 +133,7 @@ or malformed page is an error, not an empty database. Timeouts are finite
 - Warehouse units = OCCUPIED + PENDING_DISPATCH. EMPTY is **not** synonymous with
   dispatched. Pending dispatch keeps its slot reserved. Expired stock still counts.
 - **Available slots (demo, at sync)** counts unique existing IDs 1–8 with
-  `productID=null` and `isOccupied` **not true** (`false` or `null`). There is **no
+  `containerID=null` and `isOccupied` **not true** (`false` or `null`). There is **no
   freshness requirement**: old, missing, or future observation timestamps do not
   gate demo availability. Unknown occupancy does **not** prove physical vacancy;
   accepting it is an explicit MVP simplification, not a real-time vacancy claim.

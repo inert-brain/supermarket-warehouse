@@ -10,8 +10,8 @@ const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind
 
 test('Firebase receiving transport uses server-only reads and the exact registration contract', async () => {
   const calls = [];
-  const productID = ' 000123 ';
-  const responses = [{ stock: null }, { stock: { productID, description: null, expiresOn: null } }];
+  const containerID = ' 000123 ';
+  const responses = [{ stock: null }, { stock: { containerID, description: null, expiresOn: null } }];
   const modules = {
     'firebase/app': { getApps: () => [], initializeApp: () => 'app' },
     'firebase/data-connect': {
@@ -28,15 +28,59 @@ test('Firebase receiving transport uses server-only reads and the exact registra
   runInNewContext(js, { exports, require: name => modules[name], process: { env: {
     EXPO_PUBLIC_FIREBASE_API_KEY: 'test', EXPO_PUBLIC_FIREBASE_PROJECT_ID: 'test', EXPO_PUBLIC_FIREBASE_APP_ID: 'test',
   } } });
-  const result = await exports.validateReceiving(productID, new AbortController().signal);
+  const result = await exports.validateReceiving(containerID, new AbortController().signal);
   assert.equal(result.registered, true);
   assert.equal(result.decision, 'EXPIRY_UNKNOWN');
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-    ['queryRef', 'connection', 'GetStockByProductID', { productID }],
+    ['queryRef', 'connection', 'GetStockByProductID', { containerID }],
     ['executeQuery', 'query', { fetchPolicy: 'server-only' }],
-    ['mutationRef', 'connection', 'RegisterScannedProduct', { productID }],
+    ['mutationRef', 'connection', 'RegisterScannedProduct', { containerID }],
     ['executeMutation', 'mutation'],
-    ['queryRef', 'connection', 'GetStockByProductID', { productID }],
+    ['queryRef', 'connection', 'GetStockByProductID', { containerID }],
     ['executeQuery', 'query', { fetchPolicy: 'server-only' }],
   ]);
+});
+
+test('product scan validates Firestore before saving the exact code and reconciles lost responses', async () => {
+  const { waitForQuery } = await import('./receiving-core.ts');
+  const calls = [];
+  let exists = true;
+  let failWrite = false;
+  const modules = {
+    'firebase/app': { getApps: () => [], initializeApp: () => 'app' },
+    'firebase/firestore': {
+      getFirestore: () => 'firestore',
+      doc: (db, collection, code) => { calls.push(['doc', db, collection, code]); return 'document'; },
+      getDocFromServer: async () => ({ exists: () => exists }),
+    },
+    'firebase/data-connect': {
+      getDataConnect: () => 'connection',
+      mutationRef: (_, name, variables) => { calls.push(['mutation', name, variables]); return 'mutation'; },
+      executeMutation: async () => { if (failWrite) throw new Error('lost'); return { data: { saved: 1 } }; },
+      queryRef: (_, name, variables) => { calls.push(['query', name, variables]); return 'query'; },
+      executeQuery: async () => ({ data: { stock: { description: 'P001' } } }),
+      QueryFetchPolicy: { SERVER_ONLY: 'server-only' },
+    },
+    './receiving-core': { waitForQuery },
+  };
+  const exports = {};
+  runInNewContext(js, { exports, require: name => modules[name], process: { env: {
+    EXPO_PUBLIC_FIREBASE_API_KEY: 'test', EXPO_PUBLIC_FIREBASE_PROJECT_ID: 'test', EXPO_PUBLIC_FIREBASE_APP_ID: 'test',
+  } } });
+  const signal = new AbortController().signal;
+  await exports.saveContainerProduct('BOX-01', 'P001', signal);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ['doc', 'firestore', 'shopping-cart', 'P001'],
+    ['mutation', 'SaveContainerProduct', { containerID: 'BOX-01', productCode: 'P001' }],
+  ]);
+  calls.length = 0;
+  exists = false;
+  await assert.rejects(exports.saveContainerProduct('BOX-01', 'P002', signal), /not found/);
+  assert.equal(calls.some(c => c[0] === 'mutation'), false);
+  exists = true; failWrite = true; calls.length = 0;
+  await exports.saveContainerProduct('BOX-01', 'P001', signal);
+  assert.equal(calls.at(-1)[0], 'query');
+  const abort = new AbortController(); abort.abort(); calls.length = 0;
+  await assert.rejects(exports.saveContainerProduct('BOX-01', 'P001', abort.signal), /cancelled/);
+  assert.equal(calls.length, 0);
 });

@@ -49,11 +49,16 @@ Read `app/UI/AGENTS.md` before changing Expo APIs. Packages currently include Ex
 
 ## Data model and settled behavior
 
-One productID is one physical unit; preserve barcode text exactly, including leading zeros. The UI requires eight existing slot rows, IDs 1–8; schema deployment does not create them. Provision missing rows explicitly with unreported occupancy null. The unique relationship limits a product to one slot. Do not add a box/product distinction.
+Active API/client identifier: `containerID` (formerly `productID`). SQL mappings remain
+`product_id` / `assigned_product_id`; constraints, operation names, and barcode values
+are unchanged. Deploy the renamed Data Connect contract and update app, dashboard,
+and ESP32 together; old clients expect the old field. Source edits do not deploy Firebase.
 
-- **Stock:** productID, currentStatus, statusUpdatedAt, description, expiresOn.
-- **Slot:** slotId, nullable productID/assignedAt, nullable isOccupied/occupancyUpdatedAt.
-- **Activity:** activityId, productID, occurredAt, activityType.
+One containerID is one physical unit; preserve barcode text exactly, including leading zeros. The UI requires eight existing slot rows, IDs 1–8; schema deployment does not create them. Provision missing rows explicitly with unreported occupancy null. The unique relationship limits a product to one slot. Do not add a box/product distinction.
+
+- **Stock:** containerID, currentStatus, statusUpdatedAt, description, expiresOn.
+- **Slot:** slotId, nullable containerID/assignedAt, nullable isOccupied/occupancyUpdatedAt.
+- **Activity:** activityId, containerID, occurredAt, activityType.
 - StockStatus: EMPTY, OCCUPIED, PENDING_DISPATCH.
 - ActivityType: ON_RACK, OFF_RACK, DISPATCHED, REMOVED.
 
@@ -62,16 +67,18 @@ Physical occupancy and assignment are separate. The Hall sensor detects an objec
 | Action | Stock / activity | Slot |
 |---|---|---|
 | Register unknown barcode | New EMPTY; no activity | No binding |
-| Assign/change slot | Preserve status; no receipt/activity | Bind target; moving clears old productID AND assignedAt |
+| Assign/change slot | Preserve status; no receipt/activity | Bind target; moving clears old containerID AND assignedAt |
 | Sensor detects assigned EMPTY product | OCCUPIED + ON_RACK | Save occupied; keep binding |
 | Sensor loses OCCUPIED product | PENDING_DISPATCH + OFF_RACK | Save vacant; keep binding/reservation |
 | Sensor detects pending product again | OCCUPIED + ON_RACK | Keep original binding/assignedAt |
-| Confirm external dispatch | EMPTY + DISPATCHED | Clear productID AND assignedAt; preserve sensor fields |
+| Confirm external dispatch | EMPTY + DISPATCHED | Clear containerID AND assignedAt; preserve sensor fields |
 | Successful expired-scan logging | REMOVED activity only | No inventory/binding change |
 
 Repeated sensor reports refresh observation time but should not duplicate transitions/events. Warehouse stock = count OCCUPIED + PENDING_DISPATCH; rack stock = count OCCUPIED. Assignment alone is not receipt. EMPTY can mean unreceived or dispatched; do not equate all EMPTY rows with dispatches.
 
 ### Phone scan rules — deliberately relaxed MVP
+
+After container lookup, an empty description requires a second product barcode scan. The app validates `shopping-cart/{productCode}` in Firestore and writes the exact ID to `stocks.description` through `SaveContainerProduct`. Existing descriptions are retained unless staff select Change product. Firestore path is user-confirmed but not live-verified. Deploy the mutation before using the flow.
 
 - Read product by barcode. Explicit not-found → RegisterScannedProduct, then reread. Existing records stay unchanged. New records have null description/expiry.
 - **Phone-side policy:** valid expiry OR no expiry can continue. Missing expiry shows a warning alert once per scan; expired products are blocked for normal assignment/dispatch. After a valid inventory snapshot, the app attempts one REMOVED log per deliberate scan; failures/uncertain responses are not automatically retried. Use the phone's local calendar date; valid through the expiry day. No GPS or separate store timezone setting.
@@ -84,12 +91,12 @@ Repeated sensor reports refresh observation time but should not duplicate transi
 
 ### Cloud operations
 
-- RegisterScannedProduct(productID): insert-on-conflict-do-nothing; EMPTY/null details defaults, never overwrite existing stock.
-- ReportSlotOccupancy(slotID, occupied): firmware supplies no product ID; cloud resolves binding and atomically synchronizes observation, status, and activity.
-- AssignProductToSlot(productID, targetSlotID): initial binding; cloud currently requires EMPTY/unassigned product.
-- ChangeAssignedSlot(productID, sourceSlotID, targetSlotID): source/target not known occupied, matching source and free target; preserve stock/history.
-- DispatchProduct(productID, sourceSlotID): bound not-known-occupied source, any existing stock status; atomically empty/unbind/log.
-- RecordExpiredScan(productID, sourceSlotID nullable): rejection log only; checks binding consistency, not expiry. Without a source, cloud requires EMPTY and no bindings. Thus an unbound non-EMPTY product may pass client command construction but fail this mutation.
+- RegisterScannedProduct(containerID): insert-on-conflict-do-nothing; EMPTY/null details defaults, never overwrite existing stock.
+- ReportSlotOccupancy(slotID, occupied): firmware supplies no container ID; cloud resolves binding and atomically synchronizes observation, status, and activity.
+- AssignProductToSlot(containerID, targetSlotID): initial binding; cloud currently requires EMPTY/unassigned product.
+- ChangeAssignedSlot(containerID, sourceSlotID, targetSlotID): source/target not known occupied, matching source and free target; preserve stock/history.
+- DispatchProduct(containerID, sourceSlotID): bound not-known-occupied source, any existing stock status; atomically empty/unbind/log.
+- RecordExpiredScan(containerID, sourceSlotID nullable): rejection log only; checks binding consistency, not expiry. Without a source, cloud requires EMPTY and no bindings. Thus an unbound non-EMPTY product may pass client command construction but fail this mutation.
 - Reads: GetStockByProductID, GetLocationSnapshot, GetSlotMenu, GetProductContext, GetSlotBindings; DashboardStocks/Slots/Activities use key pagination.
 
 Operations use direct SDK calls or REST predefined-operation endpoints. Mutations use transactions and parameterized SQL/conditional checks. Do not replace these with independent client writes. **Cloud does not enforce expiry:** PUBLIC callers can bypass phone eligibility and call RecordExpiredScan for nonexpired products. REMOVED is caller-reported rejection, not verified expiry/disposal. Sensor reconciliation also ignores expiry. Connector operations are PUBLIC for the controlled demo, not production-secure. API keys are public client config, not authorization. No SQL passwords/Admin credentials in phone or firmware.
@@ -102,7 +109,7 @@ Operations use direct SDK calls or REST predefined-operation endpoints. Mutation
 - Verified TLS needs trusted PEM root(s), Wi-Fi, and NTP clock setup. This clock setup is not expiry logic. **ArduinoJson 7 and hd44780 are required to compile the current sketch**, even without LCD hardware; ESP32 core supplies the other libraries. LCD hardware initialization failure is tolerated.
 - UNO drives D2–D9 LEDs; ESP32 sends `L:01200000\n` at 9600 baud via GPIO13→UNO D11. 0=off, 1=on, 2=blink. **Current protocol is one-way, with no acknowledgments.** UNO D12→ESP32 GPIO14 is reserved; if connected, it needs the documented 5 V→3.3 V divider. USB cables alone are not this UART protocol.
 - UNO LEDs: on=vacant/unassigned; off=occupied/awaiting first placement/unknown; blink=assigned product previously on-rack is now absent. Three-second command timeout turns LEDs off; buzzer inactive. Assignment metadata is RAM-cached from valid cloud responses, so assignment/dispatch changes reach LEDs after a response; cache can be stale offline and resets at reboot.
-- Implemented optional 16×2 LCD browser: I2C GPIO8/9; buttons GPIO11 previous, GPIO12 mode, GPIO10 next. It shows selected-slot product ID or assignment time, pages long IDs, and formats assignment time at fixed UTC+8 (display only, not expiry). Native LCD tests exist. Some older README/plan statements still call these peripherals out of scope; current sketch is authoritative.
+- Implemented optional 16×2 LCD browser: I2C GPIO8/9; buttons GPIO11 previous, GPIO12 mode, GPIO10 next. It shows selected-slot container ID or assignment time, pages long IDs, and formats assignment time at fixed UTC+8 (display only, not expiry). Native LCD tests exist. Some older README/plan statements still call these peripherals out of scope; current sketch is authoritative.
 - Verify real board settings, Hall polarity, and 3.3 V compatibility; some A3144 modules need different supply conditions. Never connect 5 V signals directly to S3 GPIO. Do not claim live hardware tests without performing them.
 
 ## Run, deploy, and validate
@@ -135,6 +142,12 @@ g++ -std=c++11 esp32/tests/lcd_logic_test.cpp -o /tmp/rack_lcd_test && /tmp/rack
 ```
 
 Dashboard: manual **Sync only**, complete paginated reads, metrics/graphs/slot monitor/tables. Retain last complete snapshot on failure. Activities show event counts, not reconstructed historical stock balances. Only records read by Sync are displayed; no inventory edits.
+
+Dashboard also has a **Shelves** tab with independent **Sync shelves**, reading
+Firestore `(default)` / `products/SHELF_*` in `mart-parking-fdd6b` (override with
+`FIRESTORE_PROJECT`). It displays saved shelf counters and fields, retains its last
+snapshot on errors, and uses existing public Firestore read rules without admin
+credentials. It does not write to Firestore or change warehouse stock logic.
 
 Deployment is separate from source edits; operation-not-found usually means missing deployment or mismatched project/service/connector. Expired CLI login: firebase login --reauth. Never reset tables as a deployment fix. Check actual cloud state rather than claiming it matches local files.
 

@@ -12,8 +12,8 @@ enum ActivityType {
     REMOVED
 }
 
-type Stock @table(name: "stocks", key: ["productID"]) {
-    productID: String! @col(name: "product_id")
+type Stock @table(name: "stocks", key: ["containerID"]) {
+    containerID: String! @col(name: "product_id")
     currentStatus: StockStatus! @default(value: EMPTY)
     statusUpdatedAt: Timestamp! @default(expr: "request.time")
     description: String
@@ -22,10 +22,10 @@ type Stock @table(name: "stocks", key: ["productID"]) {
 
 type Activity @table(name: "activities", key: ["activityId"]) {
     activityId: Int! @col(dataType: "serial")
-    productID: String! @col(name: "product_id")
+    containerID: String! @col(name: "product_id")
     stock: Stock!
         @ref(
-            fields: ["productID"]
+            fields: ["containerID"]
             constraintName: "activities_product_id_fkey"
         )
     occurredAt: Timestamp! @default(expr: "request.time")
@@ -34,11 +34,11 @@ type Activity @table(name: "activities", key: ["activityId"]) {
 
 type Slot @table(name: "slots", key: ["slotId"]) {
     slotId: Int!
-    productID: String @col(name: "assigned_product_id")
+    containerID: String @col(name: "assigned_product_id")
     stock: Stock
         @unique(indexName: "slots_assignedProductId_uidx")
         @ref(
-            fields: ["productID"]
+            fields: ["containerID"]
             constraintName: "slots_assigned_product_id_fkey"
         )
     assignedAt: Timestamp

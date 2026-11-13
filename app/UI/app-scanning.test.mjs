@@ -1,3 +1,4 @@
+import { palette, hardShadow } from './theme.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -7,15 +8,17 @@ import ts from 'typescript';
 const source = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
 const barcode = ' 00123 ';
-const result = registered => ({ registered, decision: 'EXPIRY_UNKNOWN', product: { productID: barcode, description: null, expiresOn: null } });
+const result = registered => ({ registered, decision: 'EXPIRY_UNKNOWN', product: { containerID: barcode, description: 'P001', expiresOn: null } });
 
 // Exercise App's real render branches and callbacks without a native renderer.
 function screen() {
-  const hooks = [], requests = [], alerts = [], timers = new Map();
+  const hooks = [], requests = [], productRequests = [], alerts = [], timers = new Map();
   let index = 0, dirty = true, tree;
   const getPermission = async () => {};
   const element = (type, props) => ({ type, props });
   const modules = {
+    './theme': { palette, hardShadow },
+    './BrutalButton': { BrutalButton: 'Button' },
     react: {
       useState(initial) {
         const key = index++;
@@ -39,7 +42,7 @@ function screen() {
       Alert: { alert: (...args) => alerts.push(args) },
             StyleSheet: { create: value => value }, AppState: { addEventListener: () => ({ remove() {} }) },
     },
-    './receiving': { validateReceiving: (id, signal) => new Promise((resolve, reject) => requests.push({ id, signal, resolve, reject })) },
+    './receiving': { validateReceiving: (id, signal) => new Promise((resolve, reject) => requests.push({ id, signal, resolve, reject })), saveContainerProduct: (id, code, signal) => new Promise((resolve, reject) => productRequests.push({ id, code, signal, resolve, reject })), readContainer: async () => result(false) },
     './location/LocationWorkflow': { LocationWorkflow: 'LocationWorkflow' },
   };
   const exports = {};
@@ -57,8 +60,8 @@ function screen() {
   render();
   const find = type => nodes(tree).filter(node => node.type === type);
   return {
-    requests, alerts, find,
-    scan() { find('Camera')[0].props.onBarcodeScanned({ data: barcode }); },
+    requests, productRequests, alerts, find,
+    scan(value = barcode) { find('Camera')[0].props.onBarcodeScanned({ data: value }); },
     button(title) { return find('Button').find(node => node.props.title === title).props.onPress(); },
     text: () => JSON.stringify(tree),
     timeout() { for (const callback of timers.values()) callback(); },
@@ -88,7 +91,7 @@ test('location mounts only after successful receiving flow and creation message 
     assert.equal(ui.find('LocationWorkflow').length, 0);
     ui.requests[0].resolve(result(registered)); await ui.flush();
     assert.equal(ui.find('LocationWorkflow').length, 1);
-    assert.equal(ui.find('LocationWorkflow')[0].props.productID, barcode);
+    assert.equal(ui.find('LocationWorkflow')[0].props.containerID, barcode);
     assert.equal(ui.text().includes('New product registered.'), registered);
     assert.match(ui.text(), /Expiry unknown/);
     ui.unmount();
@@ -153,4 +156,21 @@ test('valid and expired lookups do not show the unknown-expiry warning', async (
     if (decision === 'EXPIRED') assert.match(ui.text(), /Expired: do not receive/);
     ui.unmount();
   }
+});
+
+
+test('new container requires a separate product scan before location actions', async () => {
+  const ui = screen(); ui.scan(); await ui.flush();
+  const empty = result(true); empty.product.description = null;
+  ui.requests[0].resolve(empty); await ui.flush();
+  assert.equal(ui.find('LocationWorkflow').length, 0);
+  assert.match(ui.text(), /Scan the product for container/);
+  ui.scan('P001'); ui.scan('P001'); await ui.flush();
+  assert.equal(ui.productRequests.length, 1);
+  assert.equal(ui.productRequests[0].id, barcode);
+  assert.equal(ui.productRequests[0].code, 'P001');
+  ui.productRequests[0].resolve(); await ui.flush();
+  assert.equal(ui.find('LocationWorkflow').length, 1);
+  assert.match(ui.text(), /P001/);
+  ui.unmount();
 });

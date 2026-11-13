@@ -2,13 +2,13 @@ import { makeCommand, validateSnapshot, type Command, type Snapshot } from './co
 
 export type Outcome = { status: 'committed'; message: string };
 export interface LocationTransport {
-  readSnapshot(productID: string): Promise<unknown>;
+  readSnapshot(containerID: string): Promise<unknown>;
   executeCommand(command: Command): Promise<void>;
   writesEnabled: boolean;
 }
 export interface LocationAdapter {
   writesEnabled: boolean;
-  read(productID: string, signal: AbortSignal): Promise<Snapshot | null>;
+  read(containerID: string, signal: AbortSignal): Promise<Snapshot | null>;
   submit(command: Command): Promise<Outcome>;
 }
 
@@ -16,8 +16,8 @@ const actions = ['AssignProductToSlot', 'ChangeAssignedSlot', 'DispatchProduct',
 const object = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 export function commandValue(value: unknown): Command {
   const bad = (): never => { throw new Error('Invalid location command. Refresh inventory before continuing.'); };
-  if (!object(value) || Object.keys(value).sort().join(',') !== 'action,productID,sourceSlotID,targetSlotID' ||
-      typeof value.action !== 'string' || !actions.includes(value.action) || typeof value.productID !== 'string' || !value.productID) return bad();
+  if (!object(value) || Object.keys(value).sort().join(',') !== 'action,containerID,sourceSlotID,targetSlotID' ||
+      typeof value.action !== 'string' || !actions.includes(value.action) || typeof value.containerID !== 'string' || !value.containerID) return bad();
   const slot = (x: unknown) => x === null || (typeof x === 'number' && Number.isInteger(x) && x >= 1 && x <= 8);
   if (!slot(value.sourceSlotID) || !slot(value.targetSlotID)) return bad();
   const source = value.sourceSlotID !== null, target = value.targetSlotID !== null;
@@ -30,7 +30,7 @@ export function commandValue(value: unknown): Command {
 
 /** Recheck eligibility and the exact intended binding immediately before confirmation/submission. */
 export async function refreshCommand(adapter: LocationAdapter, expected: Command, signal: AbortSignal): Promise<Snapshot> {
-  const snapshot = await adapter.read(expected.productID, signal);
+  const snapshot = await adapter.read(expected.containerID, signal);
   if (!snapshot) throw new Error('Product not found. No command was sent.');
   const latest = makeCommand(snapshot, expected.action, expected.targetSlotID ?? undefined);
   if (latest.sourceSlotID !== expected.sourceSlotID || latest.targetSlotID !== expected.targetSlotID) {
@@ -55,11 +55,11 @@ export function createLocationAdapter(transport: LocationTransport, timeoutMs = 
   }
   return {
     writesEnabled: transport.writesEnabled,
-    async read(productID, signal) {
+    async read(containerID, signal) {
       for (let attempt = 0; attempt < 2; attempt++) {
-        const result = await call(() => transport.readSnapshot(productID), signal);
+        const result = await call(() => transport.readSnapshot(containerID), signal);
         if (result === null) return null;
-        try { return validateSnapshot(result as Snapshot, productID); }
+        try { return validateSnapshot(result as Snapshot, containerID); }
         catch (error) { if (attempt || signal.aborted) throw error; }
       }
       throw new Error('Could not load inventory snapshot. Retry.');

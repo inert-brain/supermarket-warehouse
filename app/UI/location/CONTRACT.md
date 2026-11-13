@@ -6,15 +6,15 @@ The app uses the Firebase web app and Data Connect `example` connector, `smart-w
 
 ## Reads
 
-Server-only `GetLocationSnapshot(productID: String!)` must select/alias these fields:
+Server-only `GetLocationSnapshot(containerID: String!)` must select/alias these fields:
 
 ```text
 {
-  stock: null | { productID, currentStatus, expiresOn, description },
-  rackSlots: [{ slotId, productID, assignedAt,
+  stock: null | { containerID, currentStatus, expiresOn, description },
+  rackSlots: [{ slotId, containerID, assignedAt,
                 isOccupied: Boolean | null, occupancyUpdatedAt: Timestamp | null,
-                stock: null | { productID, currentStatus } }],
-  productBindings: [{ slotId, productID, assignedAt }]
+                stock: null | { containerID, currentStatus } }],
+  productBindings: [{ slotId, containerID, assignedAt }]
 }
 ```
 
@@ -29,10 +29,10 @@ Reads are advisory. Structural/join inconsistencies get one bounded retry, then 
 | Saved occupancy + binding + stock | Display | Available to another product? |
 |---|---|---|
 | false/null + unassigned | Available (green); null also says Occupancy unknown | Yes |
-| false + assigned EMPTY | Awaiting placement + product ID | No |
-| false + assigned OCCUPIED/PENDING_DISPATCH | Off-rack / reserved + product ID | No |
-| null + assigned | Occupancy unknown / reserved + product ID | No |
-| true + assigned (any stock status) | Occupied + product ID | No |
+| false + assigned EMPTY | Awaiting placement + container ID | No |
+| false + assigned OCCUPIED/PENDING_DISPATCH | Off-rack / reserved + container ID | No |
+| null + assigned | Occupancy unknown / reserved + container ID | No |
+| true + assigned (any stock status) | Occupied + container ID | No |
 | true + unassigned | Occupied / unidentified | No |
 
 A scanned product bound to a slot with `isOccupied=true` shows **Already in Slot X · On rack (last saved occupancy)**, with no picker or location-action button; the parent screen retains Scan again. Otherwise it shows the eight-slot picker regardless of stock status. Its own slot is highlighted and labeled **Keep current slot (no change)**, disabled as a no-op. Expired expiry blocks assignment and normal dispatch; unknown expiry warns but allows assignment, reassignment, and dispatch. Dispatch requires a matching source with saved `isOccupied !== true`, regardless of EMPTY/OCCUPIED/PENDING_DISPATCH stock lag. Null occupancy is allowed for confirmed dispatch in this demo; staff must verify physical departure.
@@ -43,14 +43,14 @@ Expiry uses the **phone's local calendar date**: valid through the expiry day; e
 
 ## Commands and exact wire variables
 
-Internal commands remain exactly `{ action, productID, sourceSlotID, targetSlotID }`, null for unused IDs. Product IDs are preserved verbatim, including leading zeros/spaces. Slot IDs are integers 1–8. Only applicable variables are sent:
+Internal commands remain exactly `{ action, containerID, sourceSlotID, targetSlotID }`, null for unused IDs. Container IDs are preserved verbatim, including leading zeros/spaces. Slot IDs are integers 1–8. Only applicable variables are sent:
 
 | Mutation | Variables |
 |---|---|
-| `AssignProductToSlot` | `productID: String!`, `targetSlotID: Int!` |
-| `ChangeAssignedSlot` | `productID: String!`, `sourceSlotID: Int!`, `targetSlotID: Int!` |
-| `DispatchProduct` | `productID: String!`, `sourceSlotID: Int!` |
-| `RecordExpiredScan` | `productID: String!`, `sourceSlotID: Int` (explicit null if unassigned) |
+| `AssignProductToSlot` | `containerID: String!`, `targetSlotID: Int!` |
+| `ChangeAssignedSlot` | `containerID: String!`, `sourceSlotID: Int!`, `targetSlotID: Int!` |
+| `DispatchProduct` | `containerID: String!`, `sourceSlotID: Int!` |
+| `RecordExpiredScan` | `containerID: String!`, `sourceSlotID: Int` (explicit null if unassigned) |
 
 There are no PlaceProduct, MoveProduct, TakeOffRack, or ReturnProduct calls in the active workflow. No operation IDs, versions, ledger, sessions, client-selected statuses/activity types, or client timestamps are sent. No cancellation mutation is invented: canceling an alert makes no change; releasing an existing awaiting assignment needs a separately agreed operation.
 
@@ -61,8 +61,8 @@ Each command is one state/binding/vacancy-guarded transaction. Check existence, 
 | Mutation | Preconditions | Stock / activity | Assignment |
 |---|---|---|---|
 | Assign | No existing binding, unassigned target whose isOccupied is false/null; UI permits any valid stock status | Unchanged / none | Bind target and set assignedAt |
-| Change assignment | EMPTY, PENDING_DISPATCH or OCCUPIED; matching source; source and unassigned target both false/null occupancy | Unchanged / none | Clear source productID **and** assignedAt; bind target with new assignedAt |
-| Dispatch | Matching assignment, EMPTY/OCCUPIED/PENDING_DISPATCH stock, false/null source occupancy | EMPTY / DISPATCHED; derive warehouse delta from prior status (EMPTY: 0; others: −1) | Clear source productID **and** assignedAt |
+| Change assignment | EMPTY, PENDING_DISPATCH or OCCUPIED; matching source; source and unassigned target both false/null occupancy | Unchanged / none | Clear source containerID **and** assignedAt; bind target with new assignedAt |
+| Dispatch | Matching assignment, EMPTY/OCCUPIED/PENDING_DISPATCH stock, false/null source occupancy | EMPTY / DISPATCHED; derive warehouse delta from prior status (EMPTY: 0; others: −1) | Clear source containerID **and** assignedAt |
 | Expired scan | Existing product, source matches if present; phone expiry policy | Unchanged / REMOVED only | Unchanged |
 
 Every phone command preserves `isOccupied` and `occupancyUpdatedAt`; only the rack reports physical facts. Other products can never claim a vacant reserved/awaiting slot. Selecting one's own awaiting/reserved/occupied slot is always a no-op. An occupied source cannot be reassigned. Assignment success says **Assignment saved. Put the product in Slot X**, not receipt or physical placement. The UI does not force a pending status to enable dispatch.
@@ -71,7 +71,7 @@ The separate rack command `ReportSlotOccupancy(slotID, occupied)` resolves ident
 
 ## Completion, uncertainty, and security
 
-`LocationTransport` exposes `writesEnabled`, `readSnapshot(productID)`, and `executeCommand(command): Promise<void>`. Successful SDK completion is accepted as committed without a response envelope or ledger lookup. The adapter has bounded/cancellable reads, bounded submit, and rejects simultaneous submissions. Confirmations recheck eligibility and preserve the exact intended source/target: a changed binding requires a new deliberate confirmation instead of silently redirecting a dispatch.
+`LocationTransport` exposes `writesEnabled`, `readSnapshot(containerID)`, and `executeCommand(command): Promise<void>`. Successful SDK completion is accepted as committed without a response envelope or ledger lookup. The adapter has bounded/cancellable reads, bounded submit, and rejects simultaneous submissions. Confirmations recheck eligibility and preserve the exact intended source/target: a changed binding requires a new deliberate confirmation instead of silently redirecting a dispatch.
 
 The synchronous tap lock covers reads, alert, submission and final refresh; action/refresh buttons and Scan again are disabled while busy. Cancel/dismiss releases the lock. Failure/timeout refreshes and preserves an uncertainty warning across later refreshes. No mutation is automatically retried. Expired rejection is attempted once per mounted deliberate scan, including lost responses; another deliberate scan can record another REMOVED event. REMOVED is rejection, **not physical disposal or slot cleanup**.
 

@@ -2,14 +2,14 @@ import { commandValue } from './service.ts';
 import type { Command } from './core.ts';
 
 export type CommandVariables = {
-  productID: string;
+  containerID: string;
   sourceSlotID?: number | null;
   targetSlotID?: number;
 };
 
 export function mutationForCommand(value: Command): { name: Command['action']; variables: CommandVariables } {
   const command = commandValue(value);
-  const variables: CommandVariables = { productID: command.productID };
+  const variables: CommandVariables = { containerID: command.containerID };
   switch (command.action) {
     case 'AssignProductToSlot':
       variables.targetSlotID = command.targetSlotID!; break;

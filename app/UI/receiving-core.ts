@@ -1,7 +1,7 @@
 export type ValidationResult = {
   decision: 'READY_FOR_PUTAWAY' | 'EXPIRED' | 'EXPIRY_UNKNOWN';
   product: {
-    productID: string;
+    containerID: string;
     description: string | null;
     expiresOn: string | null;
   };
@@ -10,8 +10,8 @@ export type ValidationResult = {
 export type ReceivingResult = ValidationResult & { registered: boolean };
 
 export type ReceivingClient = {
-  lookup(productID: string): Promise<unknown>;
-  register(productID: string): Promise<unknown>;
+  lookup(containerID: string): Promise<unknown>;
+  register(containerID: string): Promise<unknown>;
 };
 
 // Keep the client calls behind cancellation checks: aborting a wait does not
@@ -102,7 +102,7 @@ export function interpretStock(data: unknown, barcode: string, today: string): V
     throw new Error('Unexpected product response. Do not accept the product; retry or contact support.');
   }
   const product = stock as Record<string, unknown>;
-  if (product.productID !== barcode ||
+  if (product.containerID !== barcode ||
       (product.description !== null && typeof product.description !== 'string') ||
       (product.expiresOn !== null && typeof product.expiresOn !== 'string')) {
     throw new Error('Unexpected product response. Do not accept the product; retry or contact support.');
@@ -110,6 +110,6 @@ export function interpretStock(data: unknown, barcode: string, today: string): V
   const expiresOn = product.expiresOn as string | null;
   return {
     decision: !isCalendarDate(expiresOn) ? 'EXPIRY_UNKNOWN' : expiresOn < today ? 'EXPIRED' : 'READY_FOR_PUTAWAY',
-    product: { productID: barcode, description: product.description as string | null, expiresOn },
+    product: { containerID: barcode, description: product.description as string | null, expiresOn },
   };
 }

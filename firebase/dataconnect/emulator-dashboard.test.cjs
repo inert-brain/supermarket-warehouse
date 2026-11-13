@@ -20,9 +20,9 @@ async function main() {
     connectDataConnectEmulator(dc, '127.0.0.1', 9399);
     const read = async (name, variables) => (await executeQuery(queryRef(dc, name, variables), { fetchPolicy: QueryFetchPolicy.SERVER_ONLY })).data;
     const contracts = [
-      ['DashboardStocks', 'stocks', 'productID', ['productID', 'currentStatus', 'statusUpdatedAt', 'description', 'expiresOn']],
-      ['DashboardSlots', 'slots', 'slotId', ['slotId', 'productID', 'assignedAt', 'isOccupied', 'occupancyUpdatedAt']],
-      ['DashboardActivities', 'activities', 'activityId', ['activityId', 'productID', 'occurredAt', 'activityType']],
+      ['DashboardStocks', 'stocks', 'containerID', ['containerID', 'currentStatus', 'statusUpdatedAt', 'description', 'expiresOn']],
+      ['DashboardSlots', 'slots', 'slotId', ['slotId', 'containerID', 'assignedAt', 'isOccupied', 'occupancyUpdatedAt']],
+      ['DashboardActivities', 'activities', 'activityId', ['activityId', 'containerID', 'occurredAt', 'activityType']],
     ];
     for (const [name, field] of contracts) {
       assert.deepEqual(await read(name, { after: null, limit: 100 }), { [field]: [] });
@@ -65,15 +65,15 @@ async function main() {
         assert.equal(rows[1].currentStatus, 'OCCUPIED');
       }
       if (field === 'slots') {
-        assert.equal(rows[0].productID, null);
+        assert.equal(rows[0].containerID, null);
         assert.equal(rows[0].assignedAt, null);
         assert.equal(rows[0].isOccupied, null);
         assert.equal(rows[0].occupancyUpdatedAt, null);
         assert.equal(rows[1].isOccupied, true);
         assert.equal(Date.parse(rows[1].occupancyUpdatedAt), Date.parse('2026-01-02T00:00:00Z'));
         assert.equal(rows[2].isOccupied, false);
-        assert.equal(rows[2].productID, 'dashboard-003');
-        assert.equal(rows[1].productID, 'dashboard-002');
+        assert.equal(rows[2].containerID, 'dashboard-003');
+        assert.equal(rows[1].containerID, 'dashboard-002');
         assert.equal(Date.parse(rows[1].assignedAt), Date.parse('2026-01-01T00:00:00Z'));
       }
       if (field === 'activities') {

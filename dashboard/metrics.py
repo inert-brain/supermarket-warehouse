@@ -6,18 +6,18 @@ from firebase_client import STATUSES
 
 
 def slot_cards(stocks, slots, reference_at):
-    products = {row["productID"]: row for row in stocks}
-    bindings = Counter(row["productID"] for row in slots if row["productID"] is not None)
+    products = {row["containerID"]: row for row in stocks}
+    bindings = Counter(row["containerID"] for row in slots if row["containerID"] is not None)
     cards = []
     for slot_id in range(1, 9):
         matches = [row for row in slots if row["slotId"] == slot_id]
-        card = {"slotId": slot_id, "productID": None, "status": "Unknown / awaiting rack update",
+        card = {"slotId": slot_id, "containerID": None, "status": "Unknown / awaiting rack update",
                 "available": False, "isOccupied": None, "occupancyUpdatedAt": None,
                 "observation_status": "Unknown observation time", "warning": None}
         if len(matches) == 1:
             row = matches[0]
-            product = row["productID"]
-            card.update(productID=product, isOccupied=row["isOccupied"],
+            product = row["containerID"]
+            card.update(containerID=product, isOccupied=row["isOccupied"],
                         occupancyUpdatedAt=row["occupancyUpdatedAt"])
             if row["occupancyUpdatedAt"] is not None:
                 observed = datetime.fromisoformat(row["occupancyUpdatedAt"])
@@ -54,7 +54,7 @@ def stock_metrics(stocks, slots, reference_at):
         "on_rack": counts["OCCUPIED"],
         "pending_dispatch": counts["PENDING_DISPATCH"],
         "empty": counts["EMPTY"],
-        "assigned_slots": sum(row["productID"] is not None for row in slots),
+        "assigned_slots": sum(row["containerID"] is not None for row in slots),
         "available_slots": sum(card["available"] for card in slot_cards(stocks, slots, reference_at)),
         "status_counts": {status: counts[status] for status in STATUSES},
     }
@@ -62,16 +62,16 @@ def stock_metrics(stocks, slots, reference_at):
 
 def quality_warnings(stocks, slots, reference_at):
     warnings = []
-    products = {row["productID"]: row for row in stocks}
+    products = {row["containerID"]: row for row in stocks}
     slot_counts = Counter(row["slotId"] for row in slots)
-    bindings = Counter(row["productID"] for row in slots if row["productID"] is not None)
+    bindings = Counter(row["containerID"] for row in slots if row["containerID"] is not None)
     for slot_id in range(1, 9):
         if not slot_counts[slot_id]:
             warnings.append(f"Slot {slot_id} is missing; availability is Unknown.")
         elif slot_counts[slot_id] > 1:
             warnings.append(f"Slot {slot_id} has duplicate records; availability is Unknown.")
     for row in slots:
-        slot_id, product = row["slotId"], row["productID"]
+        slot_id, product = row["slotId"], row["containerID"]
         if slot_id not in range(1, 9):
             warnings.append(f"Slot {slot_id} is outside the expected range 1–8.")
         if product is None and row["assignedAt"] is not None:

@@ -1,5 +1,7 @@
+import { BrutalButton as Button } from './BrutalButton';
+import { palette, hardShadow } from './theme';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Button, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { loadSlots } from './slots';
 import { slotGrid, type Slot } from './slot-picker-core';
 
@@ -16,7 +18,7 @@ const labels: Record<Slot['state'], string> = {
   removal_pending: 'Removal pending',
 };
 
-export function SlotPicker({ productID }: { productID: string }) {
+export function SlotPicker({ containerID }: { containerID: string }) {
   const [load, setLoad] = useState<SlotLoad>({ status: 'loading' });
   const request = useRef<AbortController | null>(null);
 
@@ -69,7 +71,7 @@ export function SlotPicker({ productID }: { productID: string }) {
   }, [refresh]);
 
   const slots = load.status === 'success' ? load.slots : slotGrid(null);
-  const alreadyBound = slots.some(slot => slot.productID === productID);
+  const alreadyBound = slots.some(slot => slot.containerID === containerID);
   const hasAvailable = slots.some(slot => slot.state === 'available');
 
   return (
@@ -84,16 +86,16 @@ export function SlotPicker({ productID }: { productID: string }) {
             <View key={slot.slotId} style={styles.cell}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`Slot ${slot.slotId}, ${labels[slot.state]}, ${load.status === 'success' ? slot.productID ?? 'Unassigned' : 'Assignment unknown'}`}
+                accessibilityLabel={`Slot ${slot.slotId}, ${labels[slot.state]}, ${load.status === 'success' ? slot.containerID ?? 'Unassigned' : 'Assignment unknown'}`}
                 accessibilityState={{ disabled: !selectable }}
                 disabled={!selectable}
-                onPress={() => Alert.alert('Slot selection only', `Slot ${slot.slotId} for product ${productID} was not reserved. Placement requires sensor integration and a secure workflow.`)}
+                onPress={() => Alert.alert('Slot selection only', `Slot ${slot.slotId} for product ${containerID} was not reserved. Placement requires sensor integration and a secure workflow.`)}
                 style={[styles.slot, selectable && styles.available]}
               >
                 <Text style={styles.slotTitle}>Slot {slot.slotId}</Text>
                 <Text style={styles.slotLabel}>{labels[slot.state]}</Text>
                 <Text style={styles.slotLabel}>
-                  {load.status === 'success' ? slot.productID ?? 'Unassigned' : 'Assignment unknown'}
+                  {load.status === 'success' ? slot.containerID ?? 'Unassigned' : 'Assignment unknown'}
                 </Text>
               </Pressable>
             </View>
@@ -114,14 +116,14 @@ export function SlotPicker({ productID }: { productID: string }) {
 
 const styles = StyleSheet.create({
   panel: { width: '100%', marginTop: 20 },
-  heading: { fontWeight: '600', fontSize: 18, marginBottom: 10 },
+  heading: { fontWeight: '900', fontSize: 18, marginBottom: 10 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -3 },
-  cell: { width: '25%', padding: 3 },
-  slot: { backgroundColor: '#dedede', borderRadius: 6, minHeight: 72, alignItems: 'center', justifyContent: 'center', padding: 4 },
-  available: { backgroundColor: '#b6e5bd' },
-  slotTitle: { fontWeight: '600', textAlign: 'center' },
+  cell: { width: '50%', padding: 6 },
+  slot: { backgroundColor: palette.muted, borderWidth: 2, borderColor: palette.ink, borderRadius: 3, minHeight: 72, alignItems: 'center', justifyContent: 'center', padding: 4 },
+  available: { backgroundColor: palette.lime, ...hardShadow },
+  slotTitle: { fontWeight: '900', textAlign: 'center' },
   slotLabel: { fontSize: 12, textAlign: 'center' },
-  remove: { backgroundColor: '#dedede', borderRadius: 6, padding: 14, marginTop: 8, alignItems: 'center', width: '100%' },
-  removeText: { color: '#444', fontWeight: '600' },
+  remove: { backgroundColor: palette.muted, borderRadius: 6, padding: 14, marginTop: 8, alignItems: 'center', width: '100%' },
+  removeText: { color: '#444', fontWeight: '900' },
   notice: { marginTop: 10 },
 });

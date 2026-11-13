@@ -108,7 +108,7 @@ The `data` property is an object of type `GetSlotBindingsData`, which is defined
 export interface GetSlotBindingsData {
   slots: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
@@ -200,7 +200,7 @@ The `GetProductContext` query requires an argument of type `GetProductContextVar
 
 ```typescript
 export interface GetProductContextVariables {
-  productID: string;
+  containerID: string;
 }
 ```
 ### Return Type
@@ -210,7 +210,7 @@ The `data` property is an object of type `GetProductContextData`, which is defin
 ```typescript
 export interface GetProductContextData {
   stock?: {
-    productID: string;
+    containerID: string;
     description?: string | null;
     expiresOn?: DateString | null;
     currentStatus: StockStatus;
@@ -218,7 +218,7 @@ export interface GetProductContextData {
   } & Stock_Key;
   slots: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
@@ -233,14 +233,14 @@ import { connectorConfig, getProductContext, GetProductContextVariables } from '
 
 // The `GetProductContext` query requires an argument of type `GetProductContextVariables`:
 const getProductContextVars: GetProductContextVariables = {
-  productID: ...,
+  containerID: ...,
 };
 
 // Call the `getProductContext()` function to execute the query.
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await getProductContext(getProductContextVars);
 // Variables can be defined inline as well.
-const { data } = await getProductContext({ productID: ..., });
+const { data } = await getProductContext({ containerID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -265,13 +265,13 @@ import { connectorConfig, getProductContextRef, GetProductContextVariables } fro
 
 // The `GetProductContext` query requires an argument of type `GetProductContextVariables`:
 const getProductContextVars: GetProductContextVariables = {
-  productID: ...,
+  containerID: ...,
 };
 
 // Call the `getProductContextRef()` function to get a reference to the query.
 const ref = getProductContextRef(getProductContextVars);
 // Variables can be defined inline as well.
-const ref = getProductContextRef({ productID: ..., });
+const ref = getProductContextRef({ containerID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `QueryRef` function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -331,12 +331,12 @@ The `data` property is an object of type `GetSlotMenuData`, which is defined in 
 export interface GetSlotMenuData {
   slots: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
     stock?: {
-      productID: string;
+      containerID: string;
       currentStatus: StockStatus;
     } & Stock_Key;
   } & Slot_Key)[];
@@ -427,7 +427,7 @@ The `GetLocationSnapshot` query requires an argument of type `GetLocationSnapsho
 
 ```typescript
 export interface GetLocationSnapshotVariables {
-  productID: string;
+  containerID: string;
 }
 ```
 ### Return Type
@@ -437,7 +437,7 @@ The `data` property is an object of type `GetLocationSnapshotData`, which is def
 ```typescript
 export interface GetLocationSnapshotData {
   stock?: {
-    productID: string;
+    containerID: string;
     description?: string | null;
     expiresOn?: DateString | null;
     currentStatus: StockStatus;
@@ -445,18 +445,18 @@ export interface GetLocationSnapshotData {
   } & Stock_Key;
   rackSlots: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
     stock?: {
-      productID: string;
+      containerID: string;
       currentStatus: StockStatus;
     } & Stock_Key;
   } & Slot_Key)[];
   productBindings: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
@@ -471,14 +471,14 @@ import { connectorConfig, getLocationSnapshot, GetLocationSnapshotVariables } fr
 
 // The `GetLocationSnapshot` query requires an argument of type `GetLocationSnapshotVariables`:
 const getLocationSnapshotVars: GetLocationSnapshotVariables = {
-  productID: ...,
+  containerID: ...,
 };
 
 // Call the `getLocationSnapshot()` function to execute the query.
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await getLocationSnapshot(getLocationSnapshotVars);
 // Variables can be defined inline as well.
-const { data } = await getLocationSnapshot({ productID: ..., });
+const { data } = await getLocationSnapshot({ containerID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -505,13 +505,13 @@ import { connectorConfig, getLocationSnapshotRef, GetLocationSnapshotVariables }
 
 // The `GetLocationSnapshot` query requires an argument of type `GetLocationSnapshotVariables`:
 const getLocationSnapshotVars: GetLocationSnapshotVariables = {
-  productID: ...,
+  containerID: ...,
 };
 
 // Call the `getLocationSnapshotRef()` function to get a reference to the query.
 const ref = getLocationSnapshotRef(getLocationSnapshotVars);
 // Variables can be defined inline as well.
-const ref = getLocationSnapshotRef({ productID: ..., });
+const ref = getLocationSnapshotRef({ containerID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `QueryRef` function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -904,7 +904,7 @@ The `GetStockByProductID` query requires an argument of type `GetStockByProductI
 
 ```typescript
 export interface GetStockByProductIdVariables {
-  productID: string;
+  containerID: string;
 }
 ```
 ### Return Type
@@ -914,7 +914,7 @@ The `data` property is an object of type `GetStockByProductIdData`, which is def
 ```typescript
 export interface GetStockByProductIdData {
   stock?: {
-    productID: string;
+    containerID: string;
     description?: string | null;
     expiresOn?: DateString | null;
   } & Stock_Key;
@@ -928,14 +928,14 @@ import { connectorConfig, getStockByProductId, GetStockByProductIdVariables } fr
 
 // The `GetStockByProductID` query requires an argument of type `GetStockByProductIdVariables`:
 const getStockByProductIdVars: GetStockByProductIdVariables = {
-  productID: ...,
+  containerID: ...,
 };
 
 // Call the `getStockByProductId()` function to execute the query.
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await getStockByProductId(getStockByProductIdVars);
 // Variables can be defined inline as well.
-const { data } = await getStockByProductId({ productID: ..., });
+const { data } = await getStockByProductId({ containerID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -958,13 +958,13 @@ import { connectorConfig, getStockByProductIdRef, GetStockByProductIdVariables }
 
 // The `GetStockByProductID` query requires an argument of type `GetStockByProductIdVariables`:
 const getStockByProductIdVars: GetStockByProductIdVariables = {
-  productID: ...,
+  containerID: ...,
 };
 
 // Call the `getStockByProductIdRef()` function to get a reference to the query.
 const ref = getStockByProductIdRef(getStockByProductIdVars);
 // Variables can be defined inline as well.
-const ref = getStockByProductIdRef({ productID: ..., });
+const ref = getStockByProductIdRef({ containerID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `QueryRef` function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1032,7 +1032,7 @@ The `RegisterScannedProduct` mutation requires an argument of type `RegisterScan
 
 ```typescript
 export interface RegisterScannedProductVariables {
-  productID: string;
+  containerID: string;
 }
 ```
 ### Return Type
@@ -1052,14 +1052,14 @@ import { connectorConfig, registerScannedProduct, RegisterScannedProductVariable
 
 // The `RegisterScannedProduct` mutation requires an argument of type `RegisterScannedProductVariables`:
 const registerScannedProductVars: RegisterScannedProductVariables = {
-  productID: ...,
+  containerID: ...,
 };
 
 // Call the `registerScannedProduct()` function to execute the mutation.
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await registerScannedProduct(registerScannedProductVars);
 // Variables can be defined inline as well.
-const { data } = await registerScannedProduct({ productID: ..., });
+const { data } = await registerScannedProduct({ containerID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1082,13 +1082,13 @@ import { connectorConfig, registerScannedProductRef, RegisterScannedProductVaria
 
 // The `RegisterScannedProduct` mutation requires an argument of type `RegisterScannedProductVariables`:
 const registerScannedProductVars: RegisterScannedProductVariables = {
-  productID: ...,
+  containerID: ...,
 };
 
 // Call the `registerScannedProductRef()` function to get a reference to the mutation.
 const ref = registerScannedProductRef(registerScannedProductVars);
 // Variables can be defined inline as well.
-const ref = registerScannedProductRef({ productID: ..., });
+const ref = registerScannedProductRef({ containerID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `MutationRef` function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1155,12 +1155,12 @@ export interface ReportSlotOccupancyData {
   query?: {
     slot?: {
       slotId: number;
-      productID?: string | null;
+      containerID?: string | null;
       assignedAt?: TimestampString | null;
       isOccupied?: boolean | null;
       occupancyUpdatedAt?: TimestampString | null;
       stock?: {
-        productID: string;
+        containerID: string;
         currentStatus: StockStatus;
         statusUpdatedAt: TimestampString;
       } & Stock_Key;
@@ -1271,7 +1271,7 @@ The `AssignProductToSlot` mutation requires an argument of type `AssignProductTo
 
 ```typescript
 export interface AssignProductToSlotVariables {
-  productID: string;
+  containerID: string;
   targetSlotID: number;
 }
 ```
@@ -1292,7 +1292,7 @@ import { connectorConfig, assignProductToSlot, AssignProductToSlotVariables } fr
 
 // The `AssignProductToSlot` mutation requires an argument of type `AssignProductToSlotVariables`:
 const assignProductToSlotVars: AssignProductToSlotVariables = {
-  productID: ...,
+  containerID: ...,
   targetSlotID: ...,
 };
 
@@ -1300,7 +1300,7 @@ const assignProductToSlotVars: AssignProductToSlotVariables = {
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await assignProductToSlot(assignProductToSlotVars);
 // Variables can be defined inline as well.
-const { data } = await assignProductToSlot({ productID: ..., targetSlotID: ..., });
+const { data } = await assignProductToSlot({ containerID: ..., targetSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1323,14 +1323,14 @@ import { connectorConfig, assignProductToSlotRef, AssignProductToSlotVariables }
 
 // The `AssignProductToSlot` mutation requires an argument of type `AssignProductToSlotVariables`:
 const assignProductToSlotVars: AssignProductToSlotVariables = {
-  productID: ...,
+  containerID: ...,
   targetSlotID: ...,
 };
 
 // Call the `assignProductToSlotRef()` function to get a reference to the mutation.
 const ref = assignProductToSlotRef(assignProductToSlotVars);
 // Variables can be defined inline as well.
-const ref = assignProductToSlotRef({ productID: ..., targetSlotID: ..., });
+const ref = assignProductToSlotRef({ containerID: ..., targetSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `MutationRef` function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1383,7 +1383,7 @@ The `ChangeAssignedSlot` mutation requires an argument of type `ChangeAssignedSl
 
 ```typescript
 export interface ChangeAssignedSlotVariables {
-  productID: string;
+  containerID: string;
   sourceSlotID: number;
   targetSlotID: number;
 }
@@ -1405,7 +1405,7 @@ import { connectorConfig, changeAssignedSlot, ChangeAssignedSlotVariables } from
 
 // The `ChangeAssignedSlot` mutation requires an argument of type `ChangeAssignedSlotVariables`:
 const changeAssignedSlotVars: ChangeAssignedSlotVariables = {
-  productID: ...,
+  containerID: ...,
   sourceSlotID: ...,
   targetSlotID: ...,
 };
@@ -1414,7 +1414,7 @@ const changeAssignedSlotVars: ChangeAssignedSlotVariables = {
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await changeAssignedSlot(changeAssignedSlotVars);
 // Variables can be defined inline as well.
-const { data } = await changeAssignedSlot({ productID: ..., sourceSlotID: ..., targetSlotID: ..., });
+const { data } = await changeAssignedSlot({ containerID: ..., sourceSlotID: ..., targetSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1437,7 +1437,7 @@ import { connectorConfig, changeAssignedSlotRef, ChangeAssignedSlotVariables } f
 
 // The `ChangeAssignedSlot` mutation requires an argument of type `ChangeAssignedSlotVariables`:
 const changeAssignedSlotVars: ChangeAssignedSlotVariables = {
-  productID: ...,
+  containerID: ...,
   sourceSlotID: ...,
   targetSlotID: ...,
 };
@@ -1445,7 +1445,7 @@ const changeAssignedSlotVars: ChangeAssignedSlotVariables = {
 // Call the `changeAssignedSlotRef()` function to get a reference to the mutation.
 const ref = changeAssignedSlotRef(changeAssignedSlotVars);
 // Variables can be defined inline as well.
-const ref = changeAssignedSlotRef({ productID: ..., sourceSlotID: ..., targetSlotID: ..., });
+const ref = changeAssignedSlotRef({ containerID: ..., sourceSlotID: ..., targetSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `MutationRef` function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1498,7 +1498,7 @@ The `DispatchProduct` mutation requires an argument of type `DispatchProductVari
 
 ```typescript
 export interface DispatchProductVariables {
-  productID: string;
+  containerID: string;
   sourceSlotID: number;
 }
 ```
@@ -1519,7 +1519,7 @@ import { connectorConfig, dispatchProduct, DispatchProductVariables } from '@dat
 
 // The `DispatchProduct` mutation requires an argument of type `DispatchProductVariables`:
 const dispatchProductVars: DispatchProductVariables = {
-  productID: ...,
+  containerID: ...,
   sourceSlotID: ...,
 };
 
@@ -1527,7 +1527,7 @@ const dispatchProductVars: DispatchProductVariables = {
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await dispatchProduct(dispatchProductVars);
 // Variables can be defined inline as well.
-const { data } = await dispatchProduct({ productID: ..., sourceSlotID: ..., });
+const { data } = await dispatchProduct({ containerID: ..., sourceSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1550,14 +1550,14 @@ import { connectorConfig, dispatchProductRef, DispatchProductVariables } from '@
 
 // The `DispatchProduct` mutation requires an argument of type `DispatchProductVariables`:
 const dispatchProductVars: DispatchProductVariables = {
-  productID: ...,
+  containerID: ...,
   sourceSlotID: ...,
 };
 
 // Call the `dispatchProductRef()` function to get a reference to the mutation.
 const ref = dispatchProductRef(dispatchProductVars);
 // Variables can be defined inline as well.
-const ref = dispatchProductRef({ productID: ..., sourceSlotID: ..., });
+const ref = dispatchProductRef({ containerID: ..., sourceSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `MutationRef` function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1610,7 +1610,7 @@ The `RecordExpiredScan` mutation requires an argument of type `RecordExpiredScan
 
 ```typescript
 export interface RecordExpiredScanVariables {
-  productID: string;
+  containerID: string;
   sourceSlotID?: number | null;
 }
 ```
@@ -1640,7 +1640,7 @@ import { connectorConfig, recordExpiredScan, RecordExpiredScanVariables } from '
 
 // The `RecordExpiredScan` mutation requires an argument of type `RecordExpiredScanVariables`:
 const recordExpiredScanVars: RecordExpiredScanVariables = {
-  productID: ...,
+  containerID: ...,
   sourceSlotID: ..., // optional
 };
 
@@ -1648,7 +1648,7 @@ const recordExpiredScanVars: RecordExpiredScanVariables = {
 // You can use the `await` keyword to wait for the promise to resolve.
 const { data } = await recordExpiredScan(recordExpiredScanVars);
 // Variables can be defined inline as well.
-const { data } = await recordExpiredScan({ productID: ..., sourceSlotID: ..., });
+const { data } = await recordExpiredScan({ containerID: ..., sourceSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the action shortcut function.
 const dataConnect = getDataConnect(connectorConfig);
@@ -1673,14 +1673,14 @@ import { connectorConfig, recordExpiredScanRef, RecordExpiredScanVariables } fro
 
 // The `RecordExpiredScan` mutation requires an argument of type `RecordExpiredScanVariables`:
 const recordExpiredScanVars: RecordExpiredScanVariables = {
-  productID: ...,
+  containerID: ...,
   sourceSlotID: ..., // optional
 };
 
 // Call the `recordExpiredScanRef()` function to get a reference to the mutation.
 const ref = recordExpiredScanRef(recordExpiredScanVars);
 // Variables can be defined inline as well.
-const ref = recordExpiredScanRef({ productID: ..., sourceSlotID: ..., });
+const ref = recordExpiredScanRef({ containerID: ..., sourceSlotID: ..., });
 
 // You can also pass in a `DataConnect` instance to the `MutationRef` function.
 const dataConnect = getDataConnect(connectorConfig);

@@ -1,6 +1,6 @@
 # PUBLIC prototype only. Values are SQL parameters; slot locks serialize all writers.
 # Every failed row-count check or constraint rolls back the whole transaction.
-mutation RegisterScannedProduct($productID: String!)
+mutation RegisterScannedProduct($containerID: String!)
 @auth(
     level: PUBLIC
     insecureReason: "Unauthenticated scan registration is intentionally allowed for the isolated prototype."
@@ -12,12 +12,23 @@ mutation RegisterScannedProduct($productID: String!)
         VALUES ($1::text, 'EMPTY'::stock_status, $2::timestamptz, NULL, NULL)
         ON CONFLICT (product_id) DO NOTHING
         """
-        params: [{ _expr: "vars.productID" }, { _expr: "request.time" }]
+        params: [{ _expr: "vars.containerID" }, { _expr: "request.time" }]
     )
         @check(
-            expr: "vars.productID.matches('[^[:space:]]')"
+            expr: "vars.containerID.matches('[^[:space:]]')"
             message: "INVALID_PRODUCT_ID"
         )
+}
+mutation SaveContainerProduct($containerID: String!, $productCode: String!)
+@auth(level: PUBLIC, insecureReason: "Product assignment is allowed for the isolated prototype.")
+@transaction {
+    saved: _execute(
+        sql: """
+        UPDATE stocks SET description = $2::text
+        WHERE product_id = $1::text AND length(trim($2::text)) > 0
+        """
+        params: [{ _expr: "vars.containerID" }, { _expr: "vars.productCode" }]
+    ) @check(expr: "this == 1", message: "CONTAINER_OR_PRODUCT_INVALID")
 }
 mutation ReportSlotOccupancy($slotID: Int!, $occupied: Boolean!)
 @auth(
@@ -63,12 +74,12 @@ mutation ReportSlotOccupancy($slotID: Int!, $occupied: Boolean!)
             key: { slotId_expr: "response.observation == 1 ? vars.slotID : 0" }
         ) {
             slotId
-            productID
+            containerID
             assignedAt
             isOccupied
             occupancyUpdatedAt
             stock {
-                productID
+                containerID
                 currentStatus
                 statusUpdatedAt
             }
@@ -77,7 +88,7 @@ mutation ReportSlotOccupancy($slotID: Int!, $occupied: Boolean!)
 }
 
 # Assignment is not receipt; only an unassigned EMPTY product may be bound.
-mutation AssignProductToSlot($productID: String!, $targetSlotID: Int!)
+mutation AssignProductToSlot($containerID: String!, $targetSlotID: Int!)
 @auth(
     level: PUBLIC
     insecureReason: "Unauthenticated assignments are intentionally allowed for the isolated prototype."
@@ -99,7 +110,7 @@ mutation AssignProductToSlot($productID: String!, $targetSlotID: Int!)
           AND t.assigned_product_id IS NULL AND t.assigned_at IS NULL
         """
         params: [
-            { _expr: "vars.productID" }
+            { _expr: "vars.containerID" }
             { _expr: "vars.targetSlotID" }
             { _expr: "request.time" }
         ]
@@ -107,7 +118,7 @@ mutation AssignProductToSlot($productID: String!, $targetSlotID: Int!)
 }
 
 mutation ChangeAssignedSlot(
-    $productID: String!
+    $containerID: String!
     $sourceSlotID: Int!
     $targetSlotID: Int!
 )
@@ -143,7 +154,7 @@ mutation ChangeAssignedSlot(
           AND (v.source_id = v.target_id OR EXISTS (SELECT 1 FROM released))
         """
         params: [
-            { _expr: "vars.productID" }
+            { _expr: "vars.containerID" }
             { _expr: "vars.sourceSlotID" }
             { _expr: "vars.targetSlotID" }
             { _expr: "request.time" }
@@ -151,7 +162,7 @@ mutation ChangeAssignedSlot(
     ) @check(expr: "this == 1", message: "STALE_STOCK_OR_SLOTS")
 }
 
-mutation DispatchProduct($productID: String!, $sourceSlotID: Int!)
+mutation DispatchProduct($containerID: String!, $sourceSlotID: Int!)
 @auth(
     level: PUBLIC
     insecureReason: "Unauthenticated dispatch is intentionally allowed for the isolated prototype."
@@ -178,14 +189,14 @@ mutation DispatchProduct($productID: String!, $sourceSlotID: Int!)
         FROM source src WHERE s.slot_id = src.slot_id AND EXISTS (SELECT 1 FROM changed)
         """
         params: [
-            { _expr: "vars.productID" }
+            { _expr: "vars.containerID" }
             { _expr: "vars.sourceSlotID" }
             { _expr: "request.time" }
         ]
     ) @check(expr: "this == 1", message: "STALE_STOCK_OR_SOURCE")
 }
 
-mutation RecordExpiredScan($productID: String!, $sourceSlotID: Int)
+mutation RecordExpiredScan($containerID: String!, $sourceSlotID: Int)
 @auth(
     level: PUBLIC
     insecureReason: "Unauthenticated expired-scan logs are intentionally allowed for the isolated prototype."
@@ -197,13 +208,13 @@ mutation RecordExpiredScan($productID: String!, $sourceSlotID: Int)
             expr: "response.query.stock != null && ((vars.sourceSlotID == null && response.query.stock.currentStatus == 'EMPTY' && response.query.bindings.size() == 0) || (vars.sourceSlotID != null && vars.sourceSlotID >= 1 && vars.sourceSlotID <= 8 && response.query.bindings.size() == 1 && response.query.bindings[0].slotId == vars.sourceSlotID && response.query.bindings[0].assignedAt != null))"
             message: "STALE_OR_INCONSISTENT"
         ) {
-        stock(key: { productID: $productID }) {
+        stock(key: { containerID: $containerID }) {
             currentStatus
         }
-        bindings: slots(where: { productID: { eq: $productID } }) {
+        bindings: slots(where: { containerID: { eq: $containerID } }) {
             slotId
             assignedAt
         }
     }
-    activity_insert(data: { productID: $productID, activityType: REMOVED })
+    activity_insert(data: { containerID: $containerID, activityType: REMOVED })
 }

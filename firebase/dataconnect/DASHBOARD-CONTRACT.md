@@ -14,7 +14,7 @@ POST only to the connector's `:executeQuery` endpoint with:
 
 | Operation name | GraphQL variable definitions | Response list | Ascending unique key |
 | --- | --- | --- | --- |
-| `DashboardStocks` | `$after: String, $limit: Int!` | `data.stocks` | `productID` |
+| `DashboardStocks` | `$after: String, $limit: Int!` | `data.stocks` | `containerID` |
 | `DashboardSlots` | `$after: Int, $limit: Int!` | `data.slots` | `slotId` |
 | `DashboardActivities` | `$after: Int, $limit: Int!` | `data.activities` | `activityId` |
 
@@ -31,7 +31,7 @@ All listed properties are present on successful rows; nullable values are explic
 
 ```text
 stocks: [{
-  productID: string,
+  containerID: string,
   currentStatus: "EMPTY" | "OCCUPIED" | "PENDING_DISPATCH",
   statusUpdatedAt: timestamp string,
   description: string | null,
@@ -40,7 +40,7 @@ stocks: [{
 
 slots: [{
   slotId: integer,
-  productID: string | null,
+  containerID: string | null,
   assignedAt: timestamp string | null,
   isOccupied: boolean | null,
   occupancyUpdatedAt: timestamp string | null
@@ -48,7 +48,7 @@ slots: [{
 
 activities: [{
   activityId: integer,
-  productID: string,
+  containerID: string,
   occurredAt: timestamp string,
   activityType: "ON_RACK" | "OFF_RACK" | "DISPATCHED" | "REMOVED"
 }]

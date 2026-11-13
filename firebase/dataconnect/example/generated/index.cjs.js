@@ -28,6 +28,20 @@ exports.registerScannedProduct = function registerScannedProduct(dcOrVars, vars)
 }
 ;
 
+const saveContainerProductRef = (dcOrVars, vars) => {
+  const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
+  dcInstance._useGeneratedSdk();
+  return mutationRef(dcInstance, 'SaveContainerProduct', inputVars);
+}
+saveContainerProductRef.operationName = 'SaveContainerProduct';
+exports.saveContainerProductRef = saveContainerProductRef;
+
+exports.saveContainerProduct = function saveContainerProduct(dcOrVars, vars) {
+  const { dc: dcInstance, vars: inputVars } = validateArgs(connectorConfig, dcOrVars, vars, true);
+  return executeMutation(saveContainerProductRef(dcInstance, inputVars));
+}
+;
+
 const reportSlotOccupancyRef = (dcOrVars, vars) => {
   const { dc: dcInstance, vars: inputVars} = validateArgs(connectorConfig, dcOrVars, vars, true);
   dcInstance._useGeneratedSdk();

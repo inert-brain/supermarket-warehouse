@@ -4,7 +4,7 @@ import { dataConnect } from './receiving';
 
 export type Slot = {
   slotId: number;
-  productID: string | null;
+  containerID: string | null;
   state: 'unknown' | 'available' | 'occupied' | 'reserved' | 'removal_pending';
 };
 
@@ -15,11 +15,11 @@ export function interpretSlots(data: unknown): Slot[] {
 
   const seen = new Set<number>();
   const slots: Slot[] = data.slots.map((row: unknown) => {
-    if (typeof row !== 'object' || row === null || !('slotId' in row) || !('productID' in row) ||
+    if (typeof row !== 'object' || row === null || !('slotId' in row) || !('containerID' in row) ||
         typeof row.slotId !== 'number' || !Number.isInteger(row.slotId) || row.slotId < 1 || row.slotId > 8 ||
-        seen.has(row.slotId) || (row.productID !== null && typeof row.productID !== 'string')) throw invalid();
+        seen.has(row.slotId) || (row.containerID !== null && typeof row.containerID !== 'string')) throw invalid();
     seen.add(row.slotId);
-    return { slotId: row.slotId, productID: row.productID, state: 'unknown' };
+    return { slotId: row.slotId, containerID: row.containerID, state: 'unknown' };
   });
   return slots.sort((a, b) => a.slotId - b.slotId);
 }

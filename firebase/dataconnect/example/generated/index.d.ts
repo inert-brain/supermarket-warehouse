@@ -26,7 +26,7 @@ export interface AssignProductToSlotData {
 }
 
 export interface AssignProductToSlotVariables {
-  productID: string;
+  containerID: string;
   targetSlotID: number;
 }
 
@@ -35,7 +35,7 @@ export interface ChangeAssignedSlotData {
 }
 
 export interface ChangeAssignedSlotVariables {
-  productID: string;
+  containerID: string;
   sourceSlotID: number;
   targetSlotID: number;
 }
@@ -72,13 +72,13 @@ export interface DispatchProductData {
 }
 
 export interface DispatchProductVariables {
-  productID: string;
+  containerID: string;
   sourceSlotID: number;
 }
 
 export interface GetLocationSnapshotData {
   stock?: {
-    productID: string;
+    containerID: string;
     description?: string | null;
     expiresOn?: DateString | null;
     currentStatus: StockStatus;
@@ -86,18 +86,18 @@ export interface GetLocationSnapshotData {
   } & Stock_Key;
   rackSlots: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
     stock?: {
-      productID: string;
+      containerID: string;
       currentStatus: StockStatus;
     } & Stock_Key;
   } & Slot_Key)[];
   productBindings: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
@@ -105,12 +105,12 @@ export interface GetLocationSnapshotData {
 }
 
 export interface GetLocationSnapshotVariables {
-  productID: string;
+  containerID: string;
 }
 
 export interface GetProductContextData {
   stock?: {
-    productID: string;
+    containerID: string;
     description?: string | null;
     expiresOn?: DateString | null;
     currentStatus: StockStatus;
@@ -118,7 +118,7 @@ export interface GetProductContextData {
   } & Stock_Key;
   slots: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
@@ -126,13 +126,13 @@ export interface GetProductContextData {
 }
 
 export interface GetProductContextVariables {
-  productID: string;
+  containerID: string;
 }
 
 export interface GetSlotBindingsData {
   slots: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
@@ -142,12 +142,12 @@ export interface GetSlotBindingsData {
 export interface GetSlotMenuData {
   slots: ({
     slotId: number;
-    productID?: string | null;
+    containerID?: string | null;
     assignedAt?: TimestampString | null;
     isOccupied?: boolean | null;
     occupancyUpdatedAt?: TimestampString | null;
     stock?: {
-      productID: string;
+      containerID: string;
       currentStatus: StockStatus;
     } & Stock_Key;
   } & Slot_Key)[];
@@ -155,14 +155,14 @@ export interface GetSlotMenuData {
 
 export interface GetStockByProductIdData {
   stock?: {
-    productID: string;
+    containerID: string;
     description?: string | null;
     expiresOn?: DateString | null;
   } & Stock_Key;
 }
 
 export interface GetStockByProductIdVariables {
-  productID: string;
+  containerID: string;
 }
 
 export interface RecordExpiredScanData {
@@ -179,7 +179,7 @@ export interface RecordExpiredScanData {
 }
 
 export interface RecordExpiredScanVariables {
-  productID: string;
+  containerID: string;
   sourceSlotID?: number | null;
 }
 
@@ -188,7 +188,7 @@ export interface RegisterScannedProductData {
 }
 
 export interface RegisterScannedProductVariables {
-  productID: string;
+  containerID: string;
 }
 
 export interface ReportSlotOccupancyData {
@@ -196,12 +196,12 @@ export interface ReportSlotOccupancyData {
   query?: {
     slot?: {
       slotId: number;
-      productID?: string | null;
+      containerID?: string | null;
       assignedAt?: TimestampString | null;
       isOccupied?: boolean | null;
       occupancyUpdatedAt?: TimestampString | null;
       stock?: {
-        productID: string;
+        containerID: string;
         currentStatus: StockStatus;
         statusUpdatedAt: TimestampString;
       } & Stock_Key;
@@ -214,13 +214,22 @@ export interface ReportSlotOccupancyVariables {
   occupied: boolean;
 }
 
+export interface SaveContainerProductData {
+  saved?: number | null;
+}
+
+export interface SaveContainerProductVariables {
+  containerID: string;
+  productCode: string;
+}
+
 export interface Slot_Key {
   slotId: number;
   __typename?: 'Slot_Key';
 }
 
 export interface Stock_Key {
-  productID: string;
+  containerID: string;
   __typename?: 'Stock_Key';
 }
 
@@ -235,6 +244,18 @@ export const registerScannedProductRef: RegisterScannedProductRef;
 
 export function registerScannedProduct(vars: RegisterScannedProductVariables): MutationPromise<RegisterScannedProductData, RegisterScannedProductVariables>;
 export function registerScannedProduct(dc: DataConnect, vars: RegisterScannedProductVariables): MutationPromise<RegisterScannedProductData, RegisterScannedProductVariables>;
+
+interface SaveContainerProductRef {
+  /* Allow users to create refs without passing in DataConnect */
+  (vars: SaveContainerProductVariables): MutationRef<SaveContainerProductData, SaveContainerProductVariables>;
+  /* Allow users to pass in custom DataConnect instances */
+  (dc: DataConnect, vars: SaveContainerProductVariables): MutationRef<SaveContainerProductData, SaveContainerProductVariables>;
+  operationName: string;
+}
+export const saveContainerProductRef: SaveContainerProductRef;
+
+export function saveContainerProduct(vars: SaveContainerProductVariables): MutationPromise<SaveContainerProductData, SaveContainerProductVariables>;
+export function saveContainerProduct(dc: DataConnect, vars: SaveContainerProductVariables): MutationPromise<SaveContainerProductData, SaveContainerProductVariables>;
 
 interface ReportSlotOccupancyRef {
   /* Allow users to create refs without passing in DataConnect */

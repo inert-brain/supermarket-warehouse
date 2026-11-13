@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { interpretStock, localDate, waitForQuery } from './receiving-core.ts';
 
 const barcode = ' 00123 ';
-const result = expiresOn => ({ stock: { productID: barcode, description: null, expiresOn } });
+const result = expiresOn => ({ stock: { containerID: barcode, description: null, expiresOn } });
 
 test('preserves barcode and applies expiry through the store calendar date', () => {
   assert.equal(interpretStock(result('2026-03-08'), barcode, '2026-03-09').decision, 'EXPIRED');
   assert.equal(interpretStock(result('2026-03-09'), barcode, '2026-03-09').decision, 'READY_FOR_PUTAWAY');
   assert.equal(interpretStock(result('2026-03-10'), barcode, '2026-03-09').decision, 'READY_FOR_PUTAWAY');
-  assert.equal(interpretStock(result('2026-03-10'), barcode, '2026-03-09').product.productID, barcode);
+  assert.equal(interpretStock(result('2026-03-10'), barcode, '2026-03-09').product.containerID, barcode);
 });
 
 test('missing or invalid expiry never permits acceptance', () => {
@@ -21,7 +21,7 @@ test('missing or invalid expiry never permits acceptance', () => {
 
 test('rejects missing products and malformed or mismatched responses', () => {
   assert.throws(() => interpretStock({ stock: null }, barcode, '2026-03-09'), /not found/i);
-  for (const value of [{}, { stock: undefined }, { stock: { productID: '00123', description: null, expiresOn: null } }, { stock: { productID: barcode, expiresOn: null } }]) {
+  for (const value of [{}, { stock: undefined }, { stock: { containerID: '00123', description: null, expiresOn: null } }, { stock: { containerID: barcode, expiresOn: null } }]) {
     assert.throws(() => interpretStock(value, barcode, '2026-03-09'), /unexpected/i);
   }
   assert.throws(() => interpretStock(result(null), barcode, 'invalid'), /phone date/i);

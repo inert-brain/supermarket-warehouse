@@ -7,12 +7,12 @@ be coordinated separately. All operations are **PUBLIC, unauthenticated prototyp
 operations. Anyone who can call the connector can read/write inventory.
 
 Connector `example`, service `smart-warehouse-service`, region `asia-southeast1`.
-Product IDs are exact strings; command slot IDs are integers 1–8. There are no
+Container IDs are exact strings; command slot IDs are integers 1–8. There are no
 versions, operation ledger, quantity model, custom server, or expiry service.
 
 ## Schema and meaning
 
-`Slot` retains its unique nullable `productID` binding, foreign key and `assignedAt`.
+`Slot` retains its unique nullable `containerID` binding, foreign key and `assignedAt`.
 It adds nullable `isOccupied: Boolean` and `occupancyUpdatedAt: Timestamp`.
 Existing/unreported rows remain **Unknown**, not confirmed vacant. The demo
 nevertheless permits false/null occupancy for assignment/change. Dispatch requires explicitly false occupancy; null is not proof of being off rack.
@@ -41,23 +41,23 @@ never interpret a partial/error response as success.
 
 | Operation | GraphQL variables | Successful `data` |
 |---|---|---|
-| `RegisterScannedProduct` | `$productID: String!` | `{registration: 1}` inserted, or `{registration: 0}` already exists |
+| `RegisterScannedProduct` | `$containerID: String!` | `{registration: 1}` inserted, or `{registration: 0}` already exists |
 | `ReportSlotOccupancy` | `$slotID: Int!, $occupied: Boolean!` | `{observation: 1, query: {slot: SlotObservation}}` |
-| `AssignProductToSlot` | `$productID: String!, $targetSlotID: Int!` | `{binding: 1}` |
-| `ChangeAssignedSlot` | `$productID: String!, $sourceSlotID: Int!, $targetSlotID: Int!` | `{binding: 1}` |
-| `DispatchProduct` | `$productID: String!, $sourceSlotID: Int!` | `{dispatch: 1}` |
-| `RecordExpiredScan` | `$productID: String!, $sourceSlotID: Int` | `{query: {stock: {currentStatus}, bindings: [{slotId, assignedAt}]}, activity_insert: {activityId: integer}}` |
+| `AssignProductToSlot` | `$containerID: String!, $targetSlotID: Int!` | `{binding: 1}` |
+| `ChangeAssignedSlot` | `$containerID: String!, $sourceSlotID: Int!, $targetSlotID: Int!` | `{binding: 1}` |
+| `DispatchProduct` | `$containerID: String!, $sourceSlotID: Int!` | `{dispatch: 1}` |
+| `RecordExpiredScan` | `$containerID: String!, $sourceSlotID: Int` | `{query: {stock: {currentStatus}, bindings: [{slotId, assignedAt}]}, activity_insert: {activityId: integer}}` |
 
 `SlotObservation` has exactly:
 
 ```text
 {
   slotId: integer,
-  productID: string | null,
+  containerID: string | null,
   assignedAt: timestamp string | null,
   isOccupied: boolean,
   occupancyUpdatedAt: timestamp string,
-  stock: {productID: string, currentStatus: "EMPTY" | "OCCUPIED" | "PENDING_DISPATCH",
+  stock: {containerID: string, currentStatus: "EMPTY" | "OCCUPIED" | "PENDING_DISPATCH",
           statusUpdatedAt: timestamp string} | null
 }
 ```
@@ -85,13 +85,13 @@ writes slots or activities. There is no readback inside this mutation.
 
 The exact successful `data` shape is `{registration: 0 | 1}`; generated SDK type
 is `{registration?: number | null}`. The count indicates insertion, not receipt,
-assignment, or quantity. Call `GetStockByProductID({productID})` afterward with
-server-only fetching; it returns nullable `stock {productID, description,
+assignment, or quantity. Call `GetStockByProductID({containerID})` afterward with
+server-only fetching; it returns nullable `stock {containerID, description,
 expiresOn}`, not status/time. Other read operations expose status/time.
 
 ### ReportSlotOccupancy
 
-The caller supplies **no product ID, status, or activity type**. The operation
+The caller supplies **no container ID, status, or activity type**. The operation
 locks the slot, resolves its stored assignment and conditionally updates stock:
 
 | Observation | Stored product status | Result | Activity |
@@ -158,16 +158,16 @@ from connector and generated SDK, not retained as conflicting write paths.
 ## Read contracts
 
 Every slot returned by `GetSlotBindings`, `GetProductContext`, `GetSlotMenu`,
-and both slot arrays in `GetLocationSnapshot` includes `slotId`, `productID`,
+and both slot arrays in `GetLocationSnapshot` includes `slotId`, `containerID`,
 `assignedAt`, **`isOccupied`, `occupancyUpdatedAt`**. Both observation fields
 are nullable. `GetSlotMenu` and snapshot `rackSlots` additionally join nullable
-`stock {productID, currentStatus}`. Product context/bindings include all exact
+`stock {containerID, currentStatus}`. Product context/bindings include all exact
 product assignments, even outside the menu; menu/rack queries return only
 existing slots 1–8. Array order is unspecified; missing rows are not synthesized.
 
-Snapshot and context stock fields remain `productID, description, expiresOn,
+Snapshot and context stock fields remain `containerID, description, expiresOn,
 currentStatus, statusUpdatedAt`. `GetStockByProductID` remains nullable
-`stock {productID, description, expiresOn}`. Query fields/pages can observe
+`stock {containerID, description, expiresOn}`. Query fields/pages can observe
 different concurrent states: refresh/fail closed rather than invent a repair.
 Use server-only reads (`QueryFetchPolicy.SERVER_ONLY`).
 

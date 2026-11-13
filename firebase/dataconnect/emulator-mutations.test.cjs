@@ -29,7 +29,7 @@ async function main() {
       assert.ok(fn, `Generated SDK must export ${name}`);
       return fn;
     };
-    const run = async (name, variables = {}) => (await executeMutation(ref(name)(dc, name === 'ReportSlotOccupancy' ? variables : { productID: 'test-001', ...variables }))).data;
+    const run = async (name, variables = {}) => (await executeMutation(ref(name)(dc, name === 'ReportSlotOccupancy' ? variables : { containerID: 'test-001', ...variables }))).data;
     const read = async (name, variables) => (await executeQuery(ref(name)(dc, variables), { fetchPolicy: QueryFetchPolicy.SERVER_ONLY })).data;
     const report = (slotID, occupied) => run('ReportSlotOccupancy', { slotID, occupied });
     const state = async () => ({
@@ -65,7 +65,7 @@ async function main() {
       const result = await report(id, occupied);
       assert.equal(result.observation, 1);
       assert.equal(result.query.slot.slotId, id);
-      assert.equal(result.query.slot.productID, 'test-001');
+      assert.equal(result.query.slot.containerID, 'test-001');
       assert.equal(result.query.slot.isOccupied, occupied);
       assert.equal(result.query.slot.stock.currentStatus, status);
       const after = await state();
@@ -121,41 +121,41 @@ async function main() {
     // Registration accepts exact arbitrary strings, never an upsert/update or a receipt.
     const beforeRegistration = await state();
     const registeredIDs = ['000001234567890', "  000-custom/雪-'$1;--  "];
-    for (const productID of registeredIDs) {
+    for (const containerID of registeredIDs) {
       const started = Date.now();
-      assert.deepEqual(await run('RegisterScannedProduct', { productID }), { registration: 1 });
+      assert.deepEqual(await run('RegisterScannedProduct', { containerID }), { registration: 1 });
       const finished = Date.now();
-      const row = (await db.query('SELECT * FROM stocks WHERE product_id = $1', [productID])).rows[0];
-      assert.equal(row.product_id, productID);
+      const row = (await db.query('SELECT * FROM stocks WHERE product_id = $1', [containerID])).rows[0];
+      assert.equal(row.product_id, containerID);
       assert.equal(row.current_status, 'EMPTY');
       assert.equal(row.description, null);
       assert.equal(row.expires_on, null);
       assert.ok(row.status_updated_at.getTime() >= started && row.status_updated_at.getTime() <= finished);
-      assert.deepEqual((await read('GetStockByProductID', { productID })).stock,
-        { productID, description: null, expiresOn: null });
+      assert.deepEqual((await read('GetStockByProductID', { containerID })).stock,
+        { containerID, description: null, expiresOn: null });
       const beforeRepeat = await state();
-      assert.deepEqual(await run('RegisterScannedProduct', { productID }), { registration: 0 });
+      assert.deepEqual(await run('RegisterScannedProduct', { containerID }), { registration: 0 });
       assert.deepEqual(await state(), beforeRepeat);
     }
     // Every existing status, metadata and old timestamp must survive repeated registration.
     for (const status of ['EMPTY', 'OCCUPIED', 'PENDING_DISPATCH']) {
-      const productID = `registration-known-${status}`;
-      await db.query("INSERT INTO stocks (product_id, current_status, status_updated_at, description, expires_on) VALUES ($1, $2, '2001-02-03T04:05:06Z', 'keep exact metadata', '2002-03-04')", [productID, status]);
+      const containerID = `registration-known-${status}`;
+      await db.query("INSERT INTO stocks (product_id, current_status, status_updated_at, description, expires_on) VALUES ($1, $2, '2001-02-03T04:05:06Z', 'keep exact metadata', '2002-03-04')", [containerID, status]);
       const before = await state();
       for (let i = 0; i < 2; i++) {
-        assert.deepEqual(await run('RegisterScannedProduct', { productID }), { registration: 0 });
+        assert.deepEqual(await run('RegisterScannedProduct', { containerID }), { registration: 0 });
         assert.deepEqual(await state(), before);
       }
-      await db.query('DELETE FROM stocks WHERE product_id = $1', [productID]);
+      await db.query('DELETE FROM stocks WHERE product_id = $1', [containerID]);
     }
     // Existing assigned inventory is also a complete no-op.
-    for (const productID of ['test-001', 'blocker']) {
+    for (const containerID of ['test-001', 'blocker']) {
       const before = await state();
-      assert.deepEqual(await run('RegisterScannedProduct', { productID }), { registration: 0 });
+      assert.deepEqual(await run('RegisterScannedProduct', { containerID }), { registration: 0 });
       assert.deepEqual(await state(), before);
     }
-    for (const productID of ['', ' ', '\t\r\n']) {
-      await rejectUnchanged('RegisterScannedProduct', { productID });
+    for (const containerID of ['', ' ', '\t\r\n']) {
+      await rejectUnchanged('RegisterScannedProduct', { containerID });
     }
     const afterRegistration = await state();
     assert.deepEqual(afterRegistration.slots, beforeRegistration.slots);
@@ -173,7 +173,7 @@ async function main() {
     await rejectUnchanged('ReportSlotOccupancy', { slotID: 5, occupied: false });
     await rejectUnchanged('AssignProductToSlot', { targetSlotID: 5 });
     await db.query('INSERT INTO slots (slot_id) VALUES (5)');
-    await rejectUnchanged('RecordExpiredScan', { productID: 'missing', sourceSlotID: null });
+    await rejectUnchanged('RecordExpiredScan', { containerID: 'missing', sourceSlotID: null });
     await rejectUnchanged('RecordExpiredScan', { sourceSlotID: 1 });
     await recordExpired(null);
     await activityFailure('RecordExpiredScan', { sourceSlotID: null }, 'REMOVED');
@@ -186,7 +186,7 @@ async function main() {
     await report(1, true);
     await rejectUnchanged('AssignProductToSlot', { targetSlotID: 1 });
     await db.query('UPDATE slots SET is_occupied = NULL, occupancy_updated_at = NULL WHERE slot_id = 1');
-    await rejectUnchanged('AssignProductToSlot', { productID: 'missing', targetSlotID: 1 });
+    await rejectUnchanged('AssignProductToSlot', { containerID: 'missing', targetSlotID: 1 });
     await db.query('UPDATE slots SET assigned_at = now() WHERE slot_id = 1');
     await rejectUnchanged('AssignProductToSlot', { targetSlotID: 1 });
     await rejectUnchanged('ReportSlotOccupancy', { slotID: 1, occupied: true });
@@ -318,20 +318,20 @@ async function main() {
     }
     await db.query("UPDATE stocks SET current_status = 'EMPTY' WHERE product_id = 'test-001'");
 
-    const snapshot = await read('GetLocationSnapshot', { productID: 'test-001' });
+    const snapshot = await read('GetLocationSnapshot', { containerID: 'test-001' });
     assert.equal(snapshot.stock.currentStatus, 'EMPTY');
     assert.deepEqual(snapshot.productBindings, []);
-    assert.equal((await read('GetLocationSnapshot', { productID: 'missing' })).stock, null);
+    assert.equal((await read('GetLocationSnapshot', { containerID: 'missing' })).stock, null);
     for (const s of snapshot.rackSlots) { assert.ok('isOccupied' in s); assert.ok('occupancyUpdatedAt' in s); }
     for (const name of ['GetProductContext', 'GetSlotMenu', 'GetSlotBindings']) {
-      const data = await read(name, { productID: 'blocker' });
+      const data = await read(name, { containerID: 'blocker' });
       const bound = data.slots.find(s => s.slotId === 8);
       assert.equal(bound.isOccupied, false);
       assert.ok(bound.occupancyUpdatedAt);
     }
-    assert.equal((await read('GetStockByProductID', { productID: 'test-001' })).stock.productID, 'test-001');
+    assert.equal((await read('GetStockByProductID', { containerID: 'test-001' })).stock.containerID, 'test-001');
     for (const name of ['PlaceProduct', 'MoveProduct', 'TakeOffRack', 'ReturnProduct']) {
-      await assert.rejects(executeMutation(mutationRef(dc, name, { productID: 'test-001', sourceSlotID: 1, targetSlotID: 2 })));
+      await assert.rejects(executeMutation(mutationRef(dc, name, { containerID: 'test-001', sourceSlotID: 1, targetSlotID: 2 })));
     }
 
     // Concurrent submissions: one receipt/removal only, or a safe transaction abort.

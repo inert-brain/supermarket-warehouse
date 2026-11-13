@@ -1,3 +1,4 @@
+import { palette, hardShadow } from './theme.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -8,8 +9,8 @@ import { refreshCommand } from './location/service.ts';
 
 const source = readFileSync(new URL('./location/LocationWorkflow.tsx', import.meta.url), 'utf8');
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-const fixture = () => ({ product: { productID: '001', status: 'EMPTY', expiry: 'valid' }, slots: Array.from({ length: 8 }, (_, i) => ({
-  slotId: i + 1, productID: null, assignedAt: null, status: null, isOccupied: false, occupancyUpdatedAt: new Date().toISOString(),
+const fixture = () => ({ product: { containerID: '001', status: 'EMPTY', expiry: 'valid' }, slots: Array.from({ length: 8 }, (_, i) => ({
+  slotId: i + 1, containerID: null, assignedAt: null, status: null, isOccupied: false, occupancyUpdatedAt: new Date().toISOString(),
 })) });
 
 // Exercise the real component callbacks/effects without adding a native renderer dependency.
@@ -53,6 +54,8 @@ function screen(initial = fixture()) {
   };
   const element = (type, props) => ({ type, props });
   const modules = {
+    '../theme': { palette, hardShadow },
+    '../BrutalButton': { BrutalButton: 'Button' },
     react,
     'react/jsx-runtime': { jsx: element, jsxs: element, Fragment: 'Fragment' },
     'react-native': {
@@ -71,7 +74,7 @@ function screen(initial = fixture()) {
   const onBusyChange = state => busy.push(state);
   function render() {
     index = 0; dirty = false; effects = [];
-    tree = exports.LocationWorkflow({ productID: initial?.product.productID ?? '001', adapter, onBusyChange });
+    tree = exports.LocationWorkflow({ containerID: initial?.product.containerID ?? '001', adapter, onBusyChange });
     for (const effect of effects) effect();
   }
   async function flush() {
@@ -104,12 +107,12 @@ function screen(initial = fixture()) {
 }
 
 test('unassigned WH-PROD-003 immediately gets eight green choices with unreported occupancy', async () => {
-  const value = fixture(); value.product.productID = 'WH-PROD-003';
+  const value = fixture(); value.product.containerID = 'WH-PROD-003';
   value.slots.forEach(slot => { slot.isOccupied = null; slot.occupancyUpdatedAt = null; });
   const ui = screen(value); await ui.flush();
   assert.equal(ui.slots().length, 8);
   assert.equal(ui.slots().every(slot => !slot.props.disabled), true);
-  assert.equal(ui.slots().every(slot => slot.props.style.some(style => style?.backgroundColor === '#b6e5bd')), true);
+  assert.equal(ui.slots().every(slot => slot.props.style({ pressed: false }).some(style => style?.backgroundColor === palette.lime)), true);
   assert.match(ui.text(), /Occupancy unknown/);
   assert.equal(ui.sent.length, 0);
   ui.unmount();
@@ -119,7 +122,7 @@ test('a product bound to known occupied Slot 3 has no picker or location action 
   for (const status of ['EMPTY', 'PENDING_DISPATCH', 'OCCUPIED']) {
     for (const occupancyUpdatedAt of [null, '2000-01-01T00:00:00Z']) {
       const value = fixture(); value.product.status = status;
-      Object.assign(value.slots[2], { productID: '001', assignedAt: 'now', status, isOccupied: true, occupancyUpdatedAt });
+      Object.assign(value.slots[2], { containerID: '001', assignedAt: 'now', status, isOccupied: true, occupancyUpdatedAt });
       const ui = screen(value); await ui.flush();
       assert.match(ui.text(), /Already in Slot.*3.*On rack/);
       assert.equal(ui.slots().length, 0);
@@ -134,8 +137,8 @@ test('false/null bound and unassigned OCCUPIED stock show picker; reservations a
   for (const expiry of ['valid', 'unknown']) for (const isOccupied of [false, null]) for (const assigned of [false, true]) {
     const value = fixture(); value.product.status = 'OCCUPIED'; value.product.expiry = expiry;
     value.slots.forEach(slot => { slot.occupancyUpdatedAt = '2000-01-01T00:00:00Z'; slot.isOccupied = null; });
-    if (assigned) Object.assign(value.slots[2], { productID: '001', assignedAt: 'now', status: 'OCCUPIED', isOccupied });
-    Object.assign(value.slots[3], { productID: 'other', assignedAt: 'now', status: 'OCCUPIED', isOccupied: false });
+    if (assigned) Object.assign(value.slots[2], { containerID: '001', assignedAt: 'now', status: 'OCCUPIED', isOccupied });
+    Object.assign(value.slots[3], { containerID: 'other', assignedAt: 'now', status: 'OCCUPIED', isOccupied: false });
     value.slots[4].isOccupied = true;
     const ui = screen(value); await ui.flush();
     assert.equal(ui.slots().length, 8);
@@ -161,7 +164,7 @@ test('false/null bound and unassigned OCCUPIED stock show picker; reservations a
 test('all stock statuses allow vacant or unknown dispatch and remain explicitly confirmed', async () => {
   for (const expiry of ['valid', 'unknown']) for (const status of ['EMPTY', 'OCCUPIED', 'PENDING_DISPATCH']) for (const isOccupied of [false, null]) {
     const value = fixture(); value.product.status = status; value.product.expiry = expiry;
-    Object.assign(value.slots[2], { productID: '001', assignedAt: 'now', status, isOccupied, occupancyUpdatedAt: '2000-01-01T00:00:00Z' });
+    Object.assign(value.slots[2], { containerID: '001', assignedAt: 'now', status, isOccupied, occupancyUpdatedAt: '2000-01-01T00:00:00Z' });
     const ui = screen(value); await ui.flush();
     const dispatch = ui.buttons().find(button => button.props.title.startsWith('Remove Product'));
     assert.equal(dispatch.props.disabled, false);
@@ -198,7 +201,7 @@ test('unknown product, missing slot and failed read show retry without inventing
 test('expired expiry cannot assign or dispatch with relaxed occupancy', async () => {
   for (const expiry of ['expired']) {
     const value = fixture(); value.product.expiry = expiry;
-    Object.assign(value.slots[0], { productID: '001', assignedAt: 'now', status: 'EMPTY', isOccupied: false });
+    Object.assign(value.slots[0], { containerID: '001', assignedAt: 'now', status: 'EMPTY', isOccupied: false });
     const ui = screen(value); await ui.flush();
     assert.equal(ui.slots().every(slot => slot.props.disabled), true);
     assert.equal(ui.buttons().find(button => button.props.title.startsWith('Remove Product')).props.disabled, true);
@@ -238,7 +241,7 @@ test('confirmation rereads before alert and before mutation, does not poll while
   assert.equal(ui.reads, 2);
   ui.alerts[0][2][1].onPress(); await ui.flush();
   assert.equal(ui.reads, 4);
-  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent)), [{ action: 'AssignProductToSlot', productID: '001', sourceSlotID: null, targetSlotID: 2 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ui.sent)), [{ action: 'AssignProductToSlot', containerID: '001', sourceSlotID: null, targetSlotID: 2 }]);
   assert.match(ui.text(), /Assignment saved/);
   assert.equal(ui.busy.at(-1), false);
   ui.unmount();
@@ -251,7 +254,7 @@ test('sensor update during confirmation prevents command, own awaiting slot is n
   ui.alerts[0][2][1].onPress(); await ui.flush();
   assert.equal(ui.sent.length, 0);
   assert.match(ui.text(), /No command was sent/);
-  Object.assign(changed.slots[0], { productID: '001', assignedAt: 'now', status: 'EMPTY', isOccupied: false });
+  Object.assign(changed.slots[0], { containerID: '001', assignedAt: 'now', status: 'EMPTY', isOccupied: false });
   ui.value = changed;
   await ui.tick(5000);
   assert.equal(ui.slots()[0].props.disabled, true);
@@ -266,7 +269,7 @@ test('sensor update during confirmation prevents command, own awaiting slot is n
 
 test('sensor return without rescan disables dispatch and exposes no manual take-off or return', async () => {
   const value = fixture(); value.product.status = 'PENDING_DISPATCH';
-  Object.assign(value.slots[0], { productID: '001', assignedAt: 'now', status: 'PENDING_DISPATCH' });
+  Object.assign(value.slots[0], { containerID: '001', assignedAt: 'now', status: 'PENDING_DISPATCH' });
   const ui = screen(value); await ui.flush();
   const dispatch = () => ui.buttons().find(button => button.props.title.startsWith('Remove Product'));
   assert.equal(dispatch().props.disabled, false);

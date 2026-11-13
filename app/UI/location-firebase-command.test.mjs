@@ -8,7 +8,7 @@ import ts from 'typescript';
 import { localDate } from './receiving-core.ts';
 import { mapLocationSnapshot } from './location/firebase-snapshot.ts';
 
-const command = (action, sourceSlotID, targetSlotID) => ({ action, productID: ' 001 ', sourceSlotID, targetSlotID });
+const command = (action, sourceSlotID, targetSlotID) => ({ action, containerID: ' 001 ', sourceSlotID, targetSlotID });
 
 test('maps exactly the four mutation names with only applicable flat variables', () => {
   for (const [value, extra] of [
@@ -17,7 +17,7 @@ test('maps exactly the four mutation names with only applicable flat variables',
     [command('DispatchProduct', 1, null), { sourceSlotID: 1 }],
     [command('RecordExpiredScan', 1, null), { sourceSlotID: 1 }],
     [command('RecordExpiredScan', null, null), { sourceSlotID: null }],
-  ]) assert.deepEqual(mutationForCommand(value), { name: value.action, variables: { productID: ' 001 ', ...extra } });
+  ]) assert.deepEqual(mutationForCommand(value), { name: value.action, variables: { containerID: ' 001 ', ...extra } });
 });
 
 test('invalid commands and manual physical transitions never reach Firebase', async () => {
@@ -37,7 +37,7 @@ test('direct SDK success needs no operation lookup or response envelope', async 
   assert.deepEqual(Object.keys(transport), ['executeCommand']);
   const adapter = createLocationAdapter({ writesEnabled: true, async readSnapshot() { return null; }, ...transport });
   assert.equal((await adapter.submit(command('ChangeAssignedSlot', 1, 2))).status, 'committed');
-  assert.deepEqual(calls, [['ChangeAssignedSlot', { productID: ' 001 ', sourceSlotID: 1, targetSlotID: 2 }]]);
+  assert.deepEqual(calls, [['ChangeAssignedSlot', { containerID: ' 001 ', sourceSlotID: 1, targetSlotID: 2 }]]);
 });
 
 test('SDK failure is surfaced once without lookup or mutation retry', async () => {
@@ -51,8 +51,8 @@ test('SDK failure is surfaced once without lookup or mutation retry', async () =
 test('Firebase SDK wiring uses server-only snapshots, phone date, and direct mutations without ledger queries', async () => {
   const calls = [], exports = {};
   const data = {
-    stock: { productID: ' 001 ', currentStatus: 'EMPTY', expiresOn: '2026-11-10', description: null },
-    rackSlots: Array.from({ length: 8 }, (_, i) => ({ slotId: i + 1, productID: null, assignedAt: null, stock: null, isOccupied: null, occupancyUpdatedAt: null })),
+    stock: { containerID: ' 001 ', currentStatus: 'EMPTY', expiresOn: '2026-11-10', description: null },
+    rackSlots: Array.from({ length: 8 }, (_, i) => ({ slotId: i + 1, containerID: null, assignedAt: null, stock: null, isOccupied: null, occupancyUpdatedAt: null })),
     productBindings: [],
   };
   const modules = {
@@ -75,9 +75,9 @@ test('Firebase SDK wiring uses server-only snapshots, phone date, and direct mut
   assert.equal((await transport.readSnapshot(' 001 ')).product.expiry, 'expired');
   await transport.executeCommand(command('AssignProductToSlot', null, 2));
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-    ['query', 'connection', 'GetLocationSnapshot', { productID: ' 001 ' }],
+    ['query', 'connection', 'GetLocationSnapshot', { containerID: ' 001 ' }],
     ['read', 'query-ref', { fetchPolicy: 'server-only' }],
-    ['mutation', 'connection', 'AssignProductToSlot', { productID: ' 001 ', targetSlotID: 2 }],
+    ['mutation', 'connection', 'AssignProductToSlot', { containerID: ' 001 ', targetSlotID: 2 }],
     ['write', 'mutation-ref'],
   ]);
 });

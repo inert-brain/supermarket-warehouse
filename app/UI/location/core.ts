@@ -2,16 +2,16 @@ export type StockStatus = 'EMPTY' | 'OCCUPIED' | 'PENDING_DISPATCH';
 export type Expiry = 'valid' | 'expired' | 'unknown';
 export type Slot = {
   slotId: number;
-  productID: string | null;
+  containerID: string | null;
   assignedAt: string | null;
   status: StockStatus | null;
   isOccupied: boolean | null;
   occupancyUpdatedAt: string | null;
 };
-export type Product = { productID: string; status: StockStatus; expiry: Expiry };
+export type Product = { containerID: string; status: StockStatus; expiry: Expiry };
 export type Snapshot = { product: Product; slots: Slot[] };
 export type Action = 'AssignProductToSlot' | 'ChangeAssignedSlot' | 'DispatchProduct' | 'RecordExpiredScan';
-export type Command = { action: Action; productID: string; sourceSlotID: number | null; targetSlotID: number | null };
+export type Command = { action: Action; containerID: string; sourceSlotID: number | null; targetSlotID: number | null };
 
 export const SNAPSHOT_REFRESH_MS = 5_000;
 export type SlotState = 'unknown' | 'available' | 'awaiting' | 'occupied' | 'reserved' | 'unidentified';
@@ -21,16 +21,16 @@ export const slotLabels: Record<SlotState, string> = {
 };
 
 export function slotState(slot: Slot): SlotState {
-  if (slot.productID === null) return slot.isOccupied === true ? 'unidentified' : 'available';
+  if (slot.containerID === null) return slot.isOccupied === true ? 'unidentified' : 'available';
   if (slot.isOccupied === true) return 'occupied';
   if (slot.isOccupied === null) return 'unknown';
   return slot.status === 'EMPTY' ? 'awaiting' : 'reserved';
 }
 
 /** Reject structural/cross-table inconsistencies; never repair bindings from a read. */
-export function validateSnapshot(snapshot: Snapshot, productID: string): Snapshot {
+export function validateSnapshot(snapshot: Snapshot, containerID: string): Snapshot {
   const bad = () => { throw new Error('Inconsistent inventory data. Refresh for the latest rack update; if it persists, contact staff. No records were repaired.'); };
-  if (!snapshot || !snapshot.product || typeof productID !== 'string' || !productID || snapshot.product.productID !== productID ||
+  if (!snapshot || !snapshot.product || typeof containerID !== 'string' || !containerID || snapshot.product.containerID !== containerID ||
       !['EMPTY', 'OCCUPIED', 'PENDING_DISPATCH'].includes(snapshot.product.status) ||
       !['valid', 'expired', 'unknown'].includes(snapshot.product.expiry) || !Array.isArray(snapshot.slots) || snapshot.slots.length !== 8) return bad();
   const ids = new Set<number>();
@@ -40,41 +40,41 @@ export function validateSnapshot(snapshot: Snapshot, productID: string): Snapsho
         (slot.isOccupied !== null && typeof slot.isOccupied !== 'boolean') ||
         (slot.occupancyUpdatedAt !== null && (typeof slot.occupancyUpdatedAt !== 'string' || !Number.isFinite(Date.parse(slot.occupancyUpdatedAt))))) return bad();
     ids.add(slot.slotId);
-    if (slot.productID === null) {
+    if (slot.containerID === null) {
       if (slot.assignedAt !== null || slot.status !== null) return bad();
     } else {
-      if (typeof slot.productID !== 'string' || !slot.productID || typeof slot.assignedAt !== 'string' || !slot.assignedAt ||
-          !['EMPTY', 'OCCUPIED', 'PENDING_DISPATCH'].includes(slot.status ?? '') || products.has(slot.productID)) return bad();
-      products.add(slot.productID);
-      if (slot.productID === productID && slot.status !== snapshot.product.status) return bad();
+      if (typeof slot.containerID !== 'string' || !slot.containerID || typeof slot.assignedAt !== 'string' || !slot.assignedAt ||
+          !['EMPTY', 'OCCUPIED', 'PENDING_DISPATCH'].includes(slot.status ?? '') || products.has(slot.containerID)) return bad();
+      products.add(slot.containerID);
+      if (slot.containerID === containerID && slot.status !== snapshot.product.status) return bad();
     }
   }
   return snapshot;
 }
 
 export function actionForSlot(snapshot: Snapshot, slotId: number): Action | null {
-  const { product, slots } = validateSnapshot(snapshot, snapshot.product.productID);
+  const { product, slots } = validateSnapshot(snapshot, snapshot.product.containerID);
   const target = slots.find(item => item.slotId === slotId);
   if (!target || product.expiry === 'expired' || slotState(target) !== 'available') return null;
-  const source = slots.find(item => item.productID === product.productID);
+  const source = slots.find(item => item.containerID === product.containerID);
   if (!source) return 'AssignProductToSlot';
   return source.isOccupied !== true ? 'ChangeAssignedSlot' : null;
 }
 
 export function canDispatch(snapshot: Snapshot): boolean {
-  const { product, slots } = validateSnapshot(snapshot, snapshot.product.productID);
-  const source = slots.find(slot => slot.productID === product.productID);
+  const { product, slots } = validateSnapshot(snapshot, snapshot.product.containerID);
+  const source = slots.find(slot => slot.containerID === product.containerID);
   return product.expiry !== 'expired' && !!source && source.isOccupied !== true;
 }
 
 export function makeCommand(snapshot: Snapshot, action: Action, targetId?: number): Command {
-  const { product, slots } = validateSnapshot(snapshot, snapshot.product.productID);
-  const source = slots.find(slot => slot.productID === product.productID);
+  const { product, slots } = validateSnapshot(snapshot, snapshot.product.containerID);
+  const source = slots.find(slot => slot.containerID === product.containerID);
   const allowed = action === 'DispatchProduct' ? canDispatch(snapshot) :
     action === 'RecordExpiredScan' ? product.expiry === 'expired' :
     targetId !== undefined && actionForSlot(snapshot, targetId) === action;
   if (!allowed) throw new Error('This action is not valid for the latest inventory and rack observation. Refresh and check the product.');
-  return { action, productID: product.productID, sourceSlotID: source?.slotId ?? null,
+  return { action, containerID: product.containerID, sourceSlotID: source?.slotId ?? null,
     targetSlotID: action === 'AssignProductToSlot' || action === 'ChangeAssignedSlot' ? targetId! : null };
 }
 

@@ -23,7 +23,7 @@ function createLoader(execute) {
   return { ...exports, calls };
 }
 
-const rows = () => Array.from({ length: 8 }, (_, i) => ({ slotId: i + 1, productID: i === 0 ? '00123' : null }));
+const rows = () => Array.from({ length: 8 }, (_, i) => ({ slotId: i + 1, containerID: i === 0 ? '00123' : null }));
 
 test('loads fresh bindings and never treats assignments as physical state', async () => {
   const loader = createLoader(() => Promise.resolve({ data: { slots: rows().reverse() } }));
@@ -40,7 +40,7 @@ test('rejects absent, incomplete, duplicate, out-of-range and malformed data', (
     { slots: rows().map((row, i) => i === 7 ? { ...row, slotId: 9 } : row) },
     { slots: rows().map((row, i) => i === 7 ? { ...row, slotId: 1.5 } : row) },
     { slots: rows().map((row, i) => i === 7 ? { slotId: row.slotId } : row) },
-    { slots: rows().map((row, i) => i === 7 ? { ...row, productID: 42 } : row) },
+    { slots: rows().map((row, i) => i === 7 ? { ...row, containerID: 42 } : row) },
   ]) assert.throws(() => interpretSlots(data), /unexpected slot response/i);
 });
 

@@ -1,10 +1,12 @@
+import { BrutalButton as Button } from '../BrutalButton';
+import { palette, hardShadow } from '../theme';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Button, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { actionForSlot, canDispatch, makeCommand, slotLabels, slotState, SNAPSHOT_REFRESH_MS, validateSnapshot, type Action, type Command, type Snapshot } from './core';
 import { locationAdapter, type LocationAdapter } from './adapter';
 import { refreshCommand } from './service';
 
-export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyChange }: { productID: string; adapter?: LocationAdapter | null; onBusyChange?: (busy: boolean) => void }) {
+export function LocationWorkflow({ containerID, adapter = locationAdapter, onBusyChange }: { containerID: string; adapter?: LocationAdapter | null; onBusyChange?: (busy: boolean) => void }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [message, setMessage] = useState('Loading inventory…');
   const [busy, setBusy] = useState(false);
@@ -35,10 +37,10 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
     const controller = new AbortController();
     request.current = controller;
     try {
-      const result = await adapter.read(productID, controller.signal);
+      const result = await adapter.read(containerID, controller.signal);
       if (!active.current || current !== generation.current) return null;
       if (!result) { setSnapshot(null); setMessage(uncertain.current ?? 'Product not found. No changes were made.'); return null; }
-      const value = validateSnapshot(result, productID);
+      const value = validateSnapshot(result, containerID);
       setSnapshot(value);
       setMessage(uncertain.current ?? (adapter.writesEnabled ? 'Assignments reserve slots only. The rack sensor controls placement, take-off, and return.' : 'Read-only: location writes are unavailable.'));
       return value;
@@ -50,7 +52,7 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
       }
       return null;
     } finally { if (request.current === controller) request.current = null; }
-  }, [adapter, productID]);
+  }, [adapter, containerID]);
 
   const reload = useCallback(async () => {
     if (lock.current || !foreground.current) return;
@@ -151,7 +153,7 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
       dismissConfirmation.current = cancel;
       const description = action === 'DispatchProduct'
         ? 'Confirm this product has left the warehouse. This releases its reserved slot. Saved vacant occupancy may be old; check the physical product.'
-        : `Assign ${productID} to slot ${targetId}? This saves the assignment only, not placement or receipt. Place the scanned product there; the sensor cannot verify its identity.`;
+        : `Assign ${containerID} to slot ${targetId}? This saves the assignment only, not placement or receipt. Place the scanned product there; the sensor cannot verify its identity.`;
       const expiryWarning = latest.product.expiry === 'unknown'
         ? 'Warning: expiry is missing or invalid. You can continue; check the physical product’s expiry when available.\n\n' : '';
       Alert.alert('Staff confirmation', expiryWarning + description, [
@@ -170,11 +172,11 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
     }
   }
 
-  const source = snapshot?.slots.find(slot => slot.productID === productID);
+  const source = snapshot?.slots.find(slot => slot.containerID === containerID);
   const onRack = source?.isOccupied === true;
 
   return <View style={styles.panel}>
-    <Text style={styles.heading}>Location workflow</Text>
+    <Text style={styles.heading}>02 / RACK ASSIGNMENT</Text>
     <Text>{message}</Text>
     {busy && <ActivityIndicator accessibilityLabel="Processing operation" />}
     {snapshot && <>
@@ -187,9 +189,9 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
           const state = slotState(slot);
           const action = actionForSlot(snapshot, slot.slotId);
           const enabled = !!action && !!adapter?.writesEnabled && !busy;
-          const label = slot.productID === productID ? 'Keep current slot (no change)' : slotLabels[state];
-          return <Pressable key={slot.slotId} accessibilityRole="button" accessibilityLabel={`Slot ${slot.slotId}, ${label}, ${slot.productID ?? 'unassigned'}${slot.isOccupied === null ? ', occupancy unknown' : ''}`} accessibilityState={{ disabled: !enabled }} disabled={!enabled} onPress={() => action && void confirm(action, slot.slotId)} style={[styles.slot, state === 'available' && styles.available, slot.productID === productID && styles.own]}>
-            <Text>Slot {slot.slotId}</Text><Text>{label}</Text><Text>{slot.productID ?? 'Unassigned'}</Text>
+          const label = slot.containerID === containerID ? 'Keep current slot (no change)' : slotLabels[state];
+          return <Pressable key={slot.slotId} accessibilityRole="button" accessibilityLabel={`Slot ${slot.slotId}, ${label}, ${slot.containerID ?? 'unassigned'}${slot.isOccupied === null ? ', occupancy unknown' : ''}`} accessibilityState={{ disabled: !enabled }} disabled={!enabled} onPress={() => action && void confirm(action, slot.slotId)} style={({ pressed }) => [styles.slot, pressed && enabled && styles.pressed, state === 'available' && styles.available, slot.containerID === containerID && styles.own, !enabled && styles.disabled]}>
+            <Text style={styles.slotTitle}>Slot {slot.slotId}</Text><Text style={styles.slotText}>{label}</Text><Text style={styles.slotText}>{slot.containerID ?? 'Unassigned'}</Text>
             {slot.isOccupied === null && <Text>Occupancy unknown</Text>}
           </Pressable>;
         })}</View>
@@ -203,8 +205,14 @@ export function LocationWorkflow({ productID, adapter = locationAdapter, onBusyC
 }
 
 const styles = StyleSheet.create({
-  panel: { width: '100%', marginTop: 20, gap: 8 }, heading: { fontSize: 18, fontWeight: '600' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  slot: { width: '25%', minHeight: 80, padding: 5, backgroundColor: '#dedede', borderWidth: 2, borderColor: 'white', alignItems: 'center', justifyContent: 'center' },
-  available: { backgroundColor: '#b6e5bd' }, own: { borderColor: '#345ea8' },
+  panel: { width: '100%', marginTop: 16, paddingTop: 14, borderTopWidth: 3, borderColor: palette.ink, gap: 12 },
+  heading: { color: palette.ink, fontSize: 17, fontWeight: '900', letterSpacing: 0.3 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: 12, paddingRight: 4, paddingBottom: 4 },
+  slot: { width: '48%', minHeight: 104, padding: 10, backgroundColor: palette.muted,
+    borderWidth: 2, borderColor: palette.ink, borderRadius: 3, alignItems: 'flex-start', justifyContent: 'center', gap: 5, ...hardShadow },
+  available: { backgroundColor: palette.lime }, own: { backgroundColor: palette.orange, borderWidth: 3 },
+  slotTitle: { color: palette.ink, fontWeight: '900', fontSize: 20 },
+  slotText: { color: palette.ink, fontSize: 12, flexShrink: 1 },
+  disabled: { boxShadow: 'none' },
+  pressed: { transform: [{ translateX: 3 }, { translateY: 3 }], boxShadow: '1px 1px 0px #161712' },
 });

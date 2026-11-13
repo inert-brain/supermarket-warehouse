@@ -8,12 +8,12 @@ import requests
 STATUSES = ("OCCUPIED", "PENDING_DISPATCH", "EMPTY")
 ACTIVITY_TYPES = ("ON_RACK", "OFF_RACK", "DISPATCHED", "REMOVED")
 FIELDS = {
-    "stocks": ("productID", "currentStatus", "statusUpdatedAt", "description", "expiresOn"),
-    "slots": ("slotId", "productID", "assignedAt", "isOccupied", "occupancyUpdatedAt"),
-    "activities": ("activityId", "productID", "occurredAt", "activityType"),
+    "stocks": ("containerID", "currentStatus", "statusUpdatedAt", "description", "expiresOn"),
+    "slots": ("slotId", "containerID", "assignedAt", "isOccupied", "occupancyUpdatedAt"),
+    "activities": ("activityId", "containerID", "occurredAt", "activityType"),
 }
 OPERATIONS = {
-    "stocks": ("DashboardStocks", "productID", str),
+    "stocks": ("DashboardStocks", "containerID", str),
     "slots": ("DashboardSlots", "slotId", int),
     "activities": ("DashboardActivities", "activityId", int),
 }
@@ -66,8 +66,8 @@ def validate_row(table, row):
                     raise ValueError("Invalid expiry")
                 date.fromisoformat(row["expiresOn"])
         elif table == "slots":
-            if row["productID"] is not None and (not isinstance(row["productID"], str) or not row["productID"]):
-                raise ValueError("Invalid product ID")
+            if row["containerID"] is not None and (not isinstance(row["containerID"], str) or not row["containerID"]):
+                raise ValueError("Invalid container ID")
             if row["assignedAt"] is not None:
                 _timestamp(row["assignedAt"])
             if row["isOccupied"] is not None and type(row["isOccupied"]) is not bool:
@@ -75,8 +75,8 @@ def validate_row(table, row):
             if row["occupancyUpdatedAt"] is not None:
                 _timestamp(row["occupancyUpdatedAt"])
         else:
-            if not isinstance(row["productID"], str) or not row["productID"]:
-                raise ValueError("Invalid product ID")
+            if not isinstance(row["containerID"], str) or not row["containerID"]:
+                raise ValueError("Invalid container ID")
             if row["activityType"] not in ACTIVITY_TYPES:
                 raise ValueError("Unknown activity type")
             _timestamp(row["occurredAt"])

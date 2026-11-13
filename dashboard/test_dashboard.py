@@ -15,17 +15,17 @@ REFERENCE = datetime.fromisoformat(STAMP)
 
 
 def stock(product="p1", status="OCCUPIED"):
-    return dict(productID=product, currentStatus=status, statusUpdatedAt=STAMP,
+    return dict(containerID=product, currentStatus=status, statusUpdatedAt=STAMP,
                 description=None, expiresOn=None)
 
 
 def slot(number=1, product=None, occupied: bool | None = False, observed: str | None = STAMP):
-    return dict(slotId=number, productID=product, assignedAt=STAMP if product else None,
+    return dict(slotId=number, containerID=product, assignedAt=STAMP if product else None,
                 isOccupied=occupied, occupancyUpdatedAt=observed)
 
 
 def activity(number=1):
-    return dict(activityId=number, productID="p1", occurredAt=STAMP, activityType="ON_RACK")
+    return dict(activityId=number, containerID="p1", occurredAt=STAMP, activityType="ON_RACK")
 
 
 def response(table, rows):
@@ -153,7 +153,7 @@ class MetricTests(unittest.TestCase):
         self.assertEqual([card["status"] for card in cards[:5]],
                          ["Available (demo)", "Awaiting placement", "Occupied", "Off-rack / reserved", "Occupied / unidentified"])
         self.assertEqual([card["available"] for card in cards], [True, False, False, False, False, True, True, True])
-        self.assertEqual([card["productID"] for card in cards[1:4]], ["a", "b", "c"])
+        self.assertEqual([card["containerID"] for card in cards[1:4]], ["a", "b", "c"])
         self.assertEqual(cards[7]["observation_status"], "31s old at sync")
         self.assertEqual(cards[7]["occupancyUpdatedAt"], slots[7]["occupancyUpdatedAt"])
         self.assertFalse(quality_warnings(stocks, slots, REFERENCE))
@@ -246,7 +246,7 @@ class SnapshotTests(unittest.TestCase):
         previous = {"completed_at": REFERENCE}
         state = {"snapshot": previous}
         session = Mock()
-        legacy_slot = {key: slot()[key] for key in ("slotId", "productID", "assignedAt")}
+        legacy_slot = {key: slot()[key] for key in ("slotId", "containerID", "assignedAt")}
         session.post.side_effect = [response("stocks", []), response("slots", [legacy_slot])]
         self.assertFalse(sync_snapshot(state, lambda: FirebaseClient(Config("key", "app"), session)))
         self.assertIs(state["snapshot"], previous)

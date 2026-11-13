@@ -4,7 +4,7 @@ import { lookupOrRegister } from './receiving-core.ts';
 
 const barcode = ' 001234567890 ';
 const today = () => '2026-11-11';
-const stock = (description = null, expiresOn = null) => ({ stock: { productID: barcode, description, expiresOn } });
+const stock = (description = null, expiresOn = null) => ({ stock: { containerID: barcode, description, expiresOn } });
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -33,7 +33,7 @@ test('explicit null registers once and rereads, preserving exact barcode and unk
   const f = fixture([{ stock: null }, stock()]);
   const result = await f.run();
   assert.deepEqual(f.calls, [['lookup', barcode], ['register', barcode], ['lookup', barcode]]);
-  assert.deepEqual(result, { registered: true, decision: 'EXPIRY_UNKNOWN', product: { productID: barcode, description: null, expiresOn: null } });
+  assert.deepEqual(result, { registered: true, decision: 'EXPIRY_UNKNOWN', product: { containerID: barcode, description: null, expiresOn: null } });
 });
 
 test('conflict count zero rereads the winner without claiming creation or replacing fields', async () => {
@@ -47,8 +47,8 @@ test('conflict count zero rereads the winner without claiming creation or replac
 
 test('failed or malformed lookups never register', async () => {
   for (const response of [new Error('offline'), null, undefined, [], {}, { stock: undefined }, { stock: false },
-    { stock: {} }, { stock: { productID: '001234567890', description: null, expiresOn: null } },
-    { stock: { productID: barcode, expiresOn: null } }]) {
+    { stock: {} }, { stock: { containerID: '001234567890', description: null, expiresOn: null } },
+    { stock: { containerID: barcode, expiresOn: null } }]) {
     const f = fixture([response]);
     await assert.rejects(f.run());
     assert.deepEqual(f.calls, [['lookup', barcode]]);
@@ -64,7 +64,7 @@ test('invalid registration counts and mutation failures never report success or 
 });
 
 test('reread must succeed with matching stock; no local record is fabricated', async () => {
-  for (const response of [new Error('offline'), { stock: null }, {}, { stock: { productID: 'wrong', description: null, expiresOn: null } }]) {
+  for (const response of [new Error('offline'), { stock: null }, {}, { stock: { containerID: 'wrong', description: null, expiresOn: null } }]) {
     const f = fixture([{ stock: null }, response]);
     await assert.rejects(f.run());
     assert.equal(f.calls.length, 3);

@@ -6,7 +6,7 @@ query GetSlotBindings
 ) {
     slots(where: { slotId: { ge: 1, le: 8 } }, limit: 8) {
         slotId
-        productID
+        containerID
         assignedAt
         isOccupied
         occupancyUpdatedAt
@@ -15,21 +15,21 @@ query GetSlotBindings
 
 # Read all bindings for the exact product, including out-of-menu slots, so
 # inconsistent inventory is not mistaken for an unassigned product.
-query GetProductContext($productID: String!)
+query GetProductContext($containerID: String!)
 @auth(
     level: PUBLIC
     insecureReason: "Product context is intentionally available without authentication for the Expo prototype."
 ) {
-    stock(key: { productID: $productID }) {
-        productID
+    stock(key: { containerID: $containerID }) {
+        containerID
         description
         expiresOn
         currentStatus
         statusUpdatedAt
     }
-    slots(where: { productID: { eq: $productID } }) {
+    slots(where: { containerID: { eq: $containerID } }) {
         slotId
-        productID
+        containerID
         assignedAt
         isOccupied
         occupancyUpdatedAt
@@ -43,25 +43,25 @@ query GetSlotMenu
 ) {
     slots(where: { slotId: { ge: 1, le: 8 } }, limit: 8) {
         slotId
-        productID
+        containerID
         assignedAt
         isOccupied
         occupancyUpdatedAt
         stock {
-            productID
+            containerID
             currentStatus
         }
     }
 }
 
 # Advisory only: each field may observe a different database state.
-query GetLocationSnapshot($productID: String!)
+query GetLocationSnapshot($containerID: String!)
 @auth(
     level: PUBLIC
     insecureReason: "Location snapshot is intentionally available without authentication for the Expo prototype."
 ) {
-    stock(key: { productID: $productID }) {
-        productID
+    stock(key: { containerID: $containerID }) {
+        containerID
         description
         expiresOn
         currentStatus
@@ -69,18 +69,18 @@ query GetLocationSnapshot($productID: String!)
     }
     rackSlots: slots(where: { slotId: { ge: 1, le: 8 } }, limit: 8) {
         slotId
-        productID
+        containerID
         assignedAt
         isOccupied
         occupancyUpdatedAt
         stock {
-            productID
+            containerID
             currentStatus
         }
     }
-    productBindings: slots(where: { productID: { eq: $productID } }) {
+    productBindings: slots(where: { containerID: { eq: $containerID } }) {
         slotId
-        productID
+        containerID
         assignedAt
         isOccupied
         occupancyUpdatedAt
@@ -98,7 +98,7 @@ query DashboardStocks($after: String, $limit: Int!)
 ) {
     stocks: _select(
         sql: """
-        SELECT product_id AS "productID", current_status AS "currentStatus",
+        SELECT product_id AS "containerID", current_status AS "currentStatus",
                status_updated_at AS "statusUpdatedAt", description, expires_on AS "expiresOn"
         FROM stocks
         WHERE ($1::text IS NULL OR product_id > $1::text)
@@ -116,7 +116,7 @@ query DashboardSlots($after: Int, $limit: Int!)
 ) {
     slots: _select(
         sql: """
-        SELECT slot_id AS "slotId", assigned_product_id AS "productID", assigned_at AS "assignedAt",
+        SELECT slot_id AS "slotId", assigned_product_id AS "containerID", assigned_at AS "assignedAt",
                is_occupied AS "isOccupied", occupancy_updated_at AS "occupancyUpdatedAt"
         FROM slots
         WHERE ($1::int IS NULL OR slot_id > $1::int)
@@ -134,7 +134,7 @@ query DashboardActivities($after: Int, $limit: Int!)
 ) {
     activities: _select(
         sql: """
-        SELECT activity_id AS "activityId", product_id AS "productID",
+        SELECT activity_id AS "activityId", product_id AS "containerID",
                occurred_at AS "occurredAt", activity_type AS "activityType"
         FROM activities
         WHERE ($1::int IS NULL OR activity_id > $1::int)
@@ -145,13 +145,13 @@ query DashboardActivities($after: Int, $limit: Int!)
     )
 }
 
-query GetStockByProductID($productID: String!)
+query GetStockByProductID($containerID: String!)
 @auth(
     level: PUBLIC
     insecureReason: "Stock lookup is intentionally available without authentication for the Expo app."
 ) {
-    stock(key: { productID: $productID }) {
-        productID
+    stock(key: { containerID: $containerID }) {
+        containerID
         description
         expiresOn
     }

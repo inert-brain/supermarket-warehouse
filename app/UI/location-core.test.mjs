@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { actionForSlot, canDispatch, makeCommand, slotState, transitionEffects, validateSnapshot } from './location/core.ts';
 
 function snapshot(status = 'EMPTY', expiry = 'valid', assigned = status !== 'EMPTY') {
-  return { product: { productID: '001', status, expiry }, slots: Array.from({ length: 8 }, (_, i) => ({
-    slotId: i + 1, productID: i === 0 && assigned ? '001' : null,
+  return { product: { containerID: '001', status, expiry }, slots: Array.from({ length: 8 }, (_, i) => ({
+    slotId: i + 1, containerID: i === 0 && assigned ? '001' : null,
     assignedAt: i === 0 && assigned ? '2026-01-01' : null, status: i === 0 && assigned ? status : null,
     isOccupied: i === 0 && assigned && status === 'OCCUPIED', occupancyUpdatedAt: '2020-01-01T00:00:00Z',
   })) };
@@ -26,11 +26,11 @@ test('slot labels use saved occupancy and assignment, not sensor age or stock ag
   for (const [changes, state] of [
     [{}, 'available'], [{ isOccupied: null, occupancyUpdatedAt: null }, 'available'],
     [{ isOccupied: true }, 'unidentified'],
-    [{ productID: 'x', status: 'EMPTY' }, 'awaiting'],
-    [{ productID: 'x', status: 'PENDING_DISPATCH' }, 'reserved'],
-    [{ productID: 'x', status: 'OCCUPIED' }, 'reserved'],
-    [{ productID: 'x', status: 'OCCUPIED', isOccupied: null }, 'unknown'],
-    ...statuses.map(status => [{ productID: 'x', status, isOccupied: true }, 'occupied']),
+    [{ containerID: 'x', status: 'EMPTY' }, 'awaiting'],
+    [{ containerID: 'x', status: 'PENDING_DISPATCH' }, 'reserved'],
+    [{ containerID: 'x', status: 'OCCUPIED' }, 'reserved'],
+    [{ containerID: 'x', status: 'OCCUPIED', isOccupied: null }, 'unknown'],
+    ...statuses.map(status => [{ containerID: 'x', status, isOccupied: true }, 'occupied']),
   ]) assert.equal(slotState({ ...vacant, ...changes }), state);
 });
 
@@ -42,7 +42,7 @@ test('all valid unassigned stocks can select false/null targets with old, future
       const before = structuredClone(data);
       assert.equal(validateSnapshot(data, '001'), data);
       assert.equal(slotState(data.slots[0]), 'available');
-      assert.deepEqual(makeCommand(data, 'AssignProductToSlot', 1), { action: 'AssignProductToSlot', productID: '001', sourceSlotID: null, targetSlotID: 1 });
+      assert.deepEqual(makeCommand(data, 'AssignProductToSlot', 1), { action: 'AssignProductToSlot', containerID: '001', sourceSlotID: null, targetSlotID: 1 });
       assert.equal(canDispatch(data), false);
       assert.deepEqual(data, before);
     }
@@ -59,7 +59,7 @@ test('false/null assigned source can move regardless of stock; its own slot is a
     assert.equal(validateSnapshot(data, '001'), data);
     assert.equal(actionForSlot(data, 1), null);
     assert.equal(actionForSlot(data, 2), 'ChangeAssignedSlot');
-    assert.deepEqual(makeCommand(data, 'ChangeAssignedSlot', 2), { action: 'ChangeAssignedSlot', productID: '001', sourceSlotID: 1, targetSlotID: 2 });
+    assert.deepEqual(makeCommand(data, 'ChangeAssignedSlot', 2), { action: 'ChangeAssignedSlot', containerID: '001', sourceSlotID: 1, targetSlotID: 2 });
     assert.throws(() => makeCommand(data, 'AssignProductToSlot', 2));
     assert.deepEqual(data, before);
   }
@@ -86,7 +86,7 @@ test('known occupied sources and targets block assignment even when old or stock
 test('other products remain reserved for all stock and occupancy combinations', () => {
   for (const status of statuses) for (const isOccupied of [true, false, null]) {
     const data = snapshot();
-    data.slots[1] = { ...data.slots[1], productID: 'other', assignedAt: 'now', status, isOccupied };
+    data.slots[1] = { ...data.slots[1], containerID: 'other', assignedAt: 'now', status, isOccupied };
     assert.equal(actionForSlot(data, 2), null);
   }
 });
@@ -96,7 +96,7 @@ test('dispatch permits false or unknown occupancy for an assigned valid product'
     const data = snapshot(status, expiry, true);
     Object.assign(data.slots[0], { isOccupied, occupancyUpdatedAt });
     assert.equal(canDispatch(data), true);
-    assert.deepEqual(makeCommand(data, 'DispatchProduct'), { action: 'DispatchProduct', productID: '001', sourceSlotID: 1, targetSlotID: null });
+    assert.deepEqual(makeCommand(data, 'DispatchProduct'), { action: 'DispatchProduct', containerID: '001', sourceSlotID: 1, targetSlotID: null });
     data.slots[0].isOccupied = true;
     assert.equal(canDispatch(data), false);
     assert.throws(() => makeCommand(data, 'DispatchProduct'));
@@ -118,7 +118,7 @@ test('phone expiry still blocks normal assignment and dispatch; expired logging 
     const data = snapshot(state, 'expired');
     data.slots.forEach(slot => { slot.isOccupied = null; slot.occupancyUpdatedAt = null; });
     const before = structuredClone(data);
-    assert.deepEqual(makeCommand(data, 'RecordExpiredScan'), { action: 'RecordExpiredScan', productID: '001', sourceSlotID: state === 'EMPTY' ? null : 1, targetSlotID: null });
+    assert.deepEqual(makeCommand(data, 'RecordExpiredScan'), { action: 'RecordExpiredScan', containerID: '001', sourceSlotID: state === 'EMPTY' ? null : 1, targetSlotID: null });
     assert.deepEqual(data, before);
   }
   assert.throws(() => makeCommand(snapshot(), 'RecordExpiredScan'));
@@ -128,7 +128,7 @@ test('phone expiry still blocks normal assignment and dispatch; expired logging 
 test('structural and actual join inconsistencies still fail closed without repairs', () => {
   const mutations = [
     data => { data.slots.pop(); }, data => { data.slots[1].slotId = 1; },
-    data => { data.slots[0].slotId = 9; }, data => { data.slots[0].productID = null; },
+    data => { data.slots[0].slotId = 9; }, data => { data.slots[0].containerID = null; },
     data => { data.slots[0].status = 'EMPTY'; }, data => { data.slots[0].assignedAt = null; },
     data => { data.slots[1] = { ...data.slots[0], slotId: 2 }; },
     data => { delete data.slots[1].isOccupied; }, data => { delete data.slots[1].occupancyUpdatedAt; },
@@ -142,6 +142,6 @@ test('structural and actual join inconsistencies still fail closed without repai
     assert.deepEqual(data, before);
   }
   assert.throws(() => validateSnapshot(snapshot(), '1'));
-  const data = snapshot(); data.product.productID = '';
+  const data = snapshot(); data.product.containerID = '';
   assert.throws(() => validateSnapshot(data, ''));
 });

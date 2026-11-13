@@ -136,7 +136,7 @@ The request has exactly these operation variables (example):
 }
 ```
 
-No product ID, activity type, timestamp, or next status is sent. There are no
+No container ID, activity type, timestamp, or next status is sent. There are no
 query/read-back requests or alternative product mutations.
 
 Response assumptions:
@@ -172,14 +172,14 @@ Buttons connect GPIO to GND using internal pull-ups:
 | Button | GPIO | Action |
 |---|---|---|
 | Back / PREV | 11 | Previous slot; 1 wraps to 8 |
-| Middle / MODE | 12 | Toggle Product ID / Assigned time |
+| Middle / MODE | 12 | Toggle Container ID / Assigned time |
 | Next / NEXT | 10 | Next slot; 8 wraps to 1 |
 
-Startup selects slot 1, Product ID view. Changing slots retains the view.
+Startup selects slot 1, Container ID view. Changing slots retains the view.
 Presses are debounced for 30 ms; holding does not repeat, and simultaneous
 presses are ignored until released. Row 1 identifies the slot/field; row 2 shows
-the product ID or assignment date/time in Philippine time (UTC+8), formatted
-`YYYY-MM-DD HH:mm`. Product IDs longer than 16 characters page every second.
+the container ID or assignment date/time in Philippine time (UTC+8), formatted
+`YYYY-MM-DD HH:mm`. Container IDs longer than 16 characters page every second.
 Navigation or changed product data restarts paging.
 
 Unknown assignments show `Sync pending`, confirmed unassigned slots show
